@@ -1,9 +1,10 @@
 import streamlit as st
 import streamlit_antd_components as sac
 
-from authPage import login
-from searchPage import search
-from uploadPage import upload
+from pages.authPage import login
+from pages.searchPage import search
+from pages.uploadPage import upload
+from pages.userManagePage import user_manage
 
 
 st.set_page_config(
@@ -21,9 +22,14 @@ def main():
                 sac.MenuItem('用户', icon='person'),
                 sac.MenuItem('数据库', icon='database'),
                 sac.MenuItem('上传', icon='upload'),
-            ],
+                sac.MenuItem('用户管理', icon='people'),
+        ],
             open_all=True
         )
+
+    if "nav" in st.session_state:
+        selected = st.session_state["nav"]
+        del st.session_state["nav"]
 
     # Page Routing
     if selected == '用户':
@@ -41,6 +47,12 @@ def main():
             st.error("无权限访问")
         else:
             upload()
+
+    elif selected == '用户管理':
+        if st.session_state.get("role") != "admin":
+            st.error("无权限访问")
+        else:
+            user_manage()
 
 
 if __name__ == "__main__":
