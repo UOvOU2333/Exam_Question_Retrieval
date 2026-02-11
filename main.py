@@ -30,10 +30,17 @@ def main():
         login()
 
     elif selected == '数据库':
-        search()
+        if not st.session_state.get("logged_in"):
+            st.warning("请先登录")
+            login()
+        else:
+            search()
 
     elif selected == '上传':
-        upload()
+        if st.session_state.get("role") != "admin":
+            st.error("无权限访问")
+        else:
+            upload()
 
 
 if __name__ == "__main__":
