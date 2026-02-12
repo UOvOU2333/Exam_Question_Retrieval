@@ -1,40 +1,7 @@
 # authPage.py
 import streamlit as st
-import sqlite3
-import hashlib
-from datetime import datetime
 
-DB_PATH = "./data/questions.db"
-
-
-def get_conn():
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
-
-
-def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
-
-
-def authenticate(username, password):
-    conn = get_conn()
-    cur = conn.cursor()
-
-    cur.execute(
-        "SELECT username, password_hash, role FROM users WHERE username = ?",
-        (username,)
-    )
-    row = cur.fetchone()
-    conn.commit()
-    conn.close()
-
-    if not row:
-        return False, None
-
-    username_db, password_hash_db, role = row
-    if hash_password(password) == password_hash_db:
-        return True, role
-
-    return False, None
+from services.user_services import authenticate
 
 
 # ========== 登录页 / 用户主页 ==========
