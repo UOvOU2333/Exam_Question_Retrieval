@@ -23,4 +23,17 @@ VALUES (?, ?, ?, ?)
 """, ("admin", pwd, "admin", datetime.datetime.now().isoformat()))
 
 conn.commit()
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS questions (
+    questionID INTEGER PRIMARY KEY AUTOINCREMENT,
+    content TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    analysis TEXT NOT NULL,
+    source TEXT NOT NULL,
+    analysis_source TEXT NOT NULL,
+    created_at DATE DEFAULT CURRENT_DATE
+);
+""")
+
 conn.close()
