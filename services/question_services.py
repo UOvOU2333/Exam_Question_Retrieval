@@ -82,6 +82,9 @@ def get_question_detail(question_id):
     }
 
 
+# =====================
+# 从数据库查询问题
+# =====================
 def search_questions(keyword: str):
     conn = get_conn()
     conn.row_factory = sqlite3.Row
