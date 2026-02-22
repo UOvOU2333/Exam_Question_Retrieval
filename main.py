@@ -19,9 +19,9 @@ def main():
         st.title("题库系统")
         selected = sac.menu(
             items=[
-                sac.MenuItem('用户', icon='person'),
-                sac.MenuItem('数据库', icon='database'),
-                sac.MenuItem('上传', icon='upload'),
+                sac.MenuItem('用户中心', icon='person'),
+                sac.MenuItem('试题检索', icon='database'),
+                sac.MenuItem('试题上传', icon='upload'),
                 sac.MenuItem('用户管理', icon='people'),
         ],
             open_all=True
@@ -32,17 +32,17 @@ def main():
         del st.session_state["nav"]
 
     # Page Routing
-    if selected == '用户':
+    if selected == '用户中心':
         login()
 
-    elif selected == '数据库':
+    elif selected == '试题检索':
         if not st.session_state.get("logged_in"):
             st.warning("请先登录")
             login()
         else:
             search()
 
-    elif selected == '上传':
+    elif selected == '试题上传':
         if st.session_state.get("role") != "admin":
             st.error("无权限访问")
         else:
