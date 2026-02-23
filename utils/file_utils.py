@@ -4,9 +4,9 @@ import os
 from pathlib import Path
 
 
-# ===============================
+# ================================
 # 上传图片文件，判断只上传一次，不重复上传
-# ===============================
+# ================================
 def save_uploaded_file_once(uploaded_file, save_dir="static/images/questions"):
     """
     智能保存上传文件：相同内容的文件只保存一次

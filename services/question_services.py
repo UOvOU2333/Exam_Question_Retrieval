@@ -105,3 +105,25 @@ def search_questions(keyword: str):
     conn.close()
 
     return rows
+
+
+# =====================
+# 更新单题
+# =====================
+def update_question(qid, content, answer, analysis, source, analysis_source):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+    UPDATE questions SET content = ?, 
+        answer = ?, 
+        analysis = ?, 
+        source = ?, 
+        analysis_source = ? 
+    WHERE questionID = ?  
+    """, (content, answer, analysis, source, analysis_source, qid))
+
+    conn.commit()
+    conn.close()
+
+    return qid

@@ -3,7 +3,7 @@ import streamlit as st
 from utils.auth_utils import require_login
 from utils.render_utils import render_markdown
 from services.question_services import search_questions
-from pages.updatePage import update_question
+from pages.updatePage import update_page
 
 
 def search():
@@ -64,4 +64,4 @@ def search():
                 st.caption(f"📌 来源：{source}")
 
             if st.button("更新试题", key=f"update_btn_{qid}"):
-                update_question(qid)
+                update_page(qid)
