@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
 conn.commit()
 
 cur.execute("""
-INSERT INTO users (username, password_hash, role, created_at)
+INSERT OR IGNORE INTO users (username, password_hash, role, created_at)
 VALUES (?, ?, ?, ?)
 """, ("admin", pwd, "admin", datetime.datetime.now().isoformat()))
 
