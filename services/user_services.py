@@ -35,9 +35,6 @@ def authenticate(username, password):
 
     return False, None
 
-def get_conn():
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
-
 
 def get_all_users():
     conn = get_conn()
