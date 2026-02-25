@@ -1,10 +1,9 @@
 import os
-import uuid
 import streamlit as st
 
 from utils.auth_utils import require_role
 from utils.render_utils import render_markdown
-from utils.file_utils import save_uploaded_file_once
+from utils.rich_text import rich_markdown
 from services.question_services import create_question
 
 # =========================
@@ -13,36 +12,11 @@ from services.question_services import create_question
 IMAGE_DIR = "static/images/questions"
 os.makedirs(IMAGE_DIR, exist_ok=True)
 
-
 def upload():
     # ===== 权限校验 =====
     require_role("admin", "editor")
 
     st.title("试题上传（支持 Markdown / LaTeX）")
-
-    # =========================
-    # 图片上传（公共）
-    # =========================
-    st.subheader("📷 图片上传（用于插入到 Markdown 中）")
-
-    uploaded_img = st.file_uploader(
-        "支持 png / jpg / jpeg",
-        type=["png", "jpg", "jpeg"]
-    )
-
-    if uploaded_img:
-        ext = uploaded_img.name.split(".")[-1]
-        filename = f"{uuid.uuid4().hex}.{ext}"
-        # save_path = os.path.join(IMAGE_DIR, filename)
-
-        # with open(save_path, "wb") as f:
-        #    f.write(uploaded_img.getbuffer())
-
-        img_url = save_uploaded_file_once(uploaded_img, IMAGE_DIR)
-
-        st.success("图片上传成功")
-        st.markdown("⬇️ **复制下面这行，粘贴到任意 Markdown 编辑区即可使用：**")
-        st.code(f"![图片说明]({img_url})")
 
     st.divider()
 
@@ -52,7 +26,10 @@ def upload():
     col_edit, col_preview = st.columns(2)
 
     with col_edit:
-        st.subheader("✏️ 编辑区（Markdown）")
+
+        rich_markdown(IMAGE_DIR)
+
+        st.divider()
 
         content = st.text_area(
             "试题内容",
@@ -98,7 +75,7 @@ def upload():
     # =========================
     # 提交试题
     # =========================
-    if st.button("✅ 提交试题", type="primary"):
+    if st.button("提交试题", type="primary"):
         if not content.strip():
             st.error("❌ 题目内容不能为空")
             return
