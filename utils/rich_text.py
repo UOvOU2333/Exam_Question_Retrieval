@@ -43,6 +43,7 @@ def rich_tools():
         st.session_state.active_tool = _map.get(type_choice)
 
 def image_tool(img_dir):
+    st.divider()
     st.subheader("📷 插入图片")
 
     uploaded_img = st.file_uploader(
@@ -57,6 +58,7 @@ def image_tool(img_dir):
         st.code(md, language="markdown")
 
 def table_tool():
+    st.divider()
     st.subheader("📊 插入表格")
 
     mode = st.radio(
