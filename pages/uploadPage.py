@@ -16,7 +16,7 @@ def upload():
     # ===== 权限校验 =====
     require_role("admin", "editor")
 
-    st.title("试题上传（支持 Markdown / LaTeX）")
+    st.title("试题上传")
 
     st.divider()
 
@@ -30,6 +30,10 @@ def upload():
         rich_markdown(IMAGE_DIR)
 
         st.divider()
+
+        year = st.number_input("年份", min_value=1980, max_value=2050, step=10)
+        paper_type = st.text_input("卷种")
+        question_no = st.text_input("题号")
 
         content = st.text_area(
             "试题内容",
@@ -85,7 +89,10 @@ def upload():
             answer=answer,
             analysis=analysis,
             source=source,
-            analysis_source=analysis_source
+            analysis_source=analysis_source,
+            year=year,
+            paper_type=paper_type,
+            question_no=question_no
         )
 
         st.success("🎉 试题上传成功")

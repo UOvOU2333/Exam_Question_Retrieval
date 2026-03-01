@@ -10,14 +10,14 @@ def get_conn():
 # =====================
 # 创建题目（上传）
 # =====================
-def create_question(content, answer, analysis, source, analysis_source):
+def create_question(content, answer, analysis, source, analysis_source, year, paper_type, question_no):
     conn = get_conn()
     cur = conn.cursor()
 
-    cur.execute("""
-        INSERT INTO questions (content, answer, analysis, source, analysis_source)
-        VALUES (?, ?, ?, ?, ?)
-    """, (content, answer, analysis, source, analysis_source))
+    cur.execute("""INSERT INTO questions
+        (content, answer, analysis, source, analysis_source, year, paper_type, question_no)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (content, answer, analysis, source, analysis_source, year, paper_type, question_no))
 
     qid = cur.lastrowid
     conn.commit()
@@ -85,21 +85,48 @@ def get_question_detail(question_id):
 # =====================
 # 从数据库查询问题
 # =====================
-def search_questions(keyword: str):
+def search_questions(keyword: str, field: str = "all", years: list | None = None):
     conn = get_conn()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
     kw = f"%{keyword}%"
 
-    cur.execute("""
-        SELECT questionID, content, answer, analysis, source
+    base_sql = """
+        SELECT questionID, content, answer, analysis, source, analysis_source,
+            year, paper_type, question_no
         FROM questions
-        WHERE content LIKE ?
-           OR answer LIKE ?
-           OR analysis LIKE ?
-        ORDER BY created_at DESC
-    """, (kw, kw, kw))
+    """
+
+    conditions = []
+    params = []
+
+    # ===== 关键词条件 =====
+    if keyword.strip():
+        if field != "all":
+            conditions.append(f"{field} LIKE ?")
+            params.append(kw)
+        else:
+            conditions.append("""
+                (content LIKE ?
+                OR answer LIKE ?
+                OR analysis LIKE ?)
+            """)
+            params.extend([kw, kw, kw])
+
+    # ===== 年份条件（支持多选）=====
+    if years:
+        placeholders = ",".join(["?"] * len(years))
+        conditions.append(f"year IN ({placeholders})")
+        params.extend(years)
+
+    # ===== 拼接 WHERE =====
+    if conditions:
+        sql = base_sql + " WHERE " + " AND ".join(conditions) + " ORDER BY created_at DESC"
+    else:
+        sql = base_sql + " ORDER BY created_at DESC"
+
+    cur.execute(sql, tuple(params))
 
     rows = cur.fetchall()
     conn.close()
@@ -110,18 +137,32 @@ def search_questions(keyword: str):
 # =====================
 # 更新单题
 # =====================
-def update_question(qid, content, answer, analysis, source, analysis_source):
+def update_question(qid, content, answer, analysis, source, analysis_source, year, paper_type, question_no):
     conn = get_conn()
     cur = conn.cursor()
 
     cur.execute("""
-    UPDATE questions SET content = ?, 
+    UPDATE questions SET 
+        content = ?, 
         answer = ?, 
         analysis = ?, 
         source = ?, 
-        analysis_source = ? 
+        analysis_source = ?,
+        year = ?,
+        paper_type = ?,
+        question_no = ?
     WHERE questionID = ?  
-    """, (content, answer, analysis, source, analysis_source, qid))
+    """, (
+        content,
+        answer,
+        analysis,
+        source,
+        analysis_source,
+        year,
+        paper_type,
+        question_no,
+        qid
+    ))
 
     conn.commit()
     conn.close()

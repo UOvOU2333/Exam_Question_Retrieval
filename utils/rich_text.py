@@ -23,9 +23,10 @@ def rich_tools():
 
     type_choice = sac.segmented(
         items=[
+            sac.SegmentedItem(label="⛔️ 关闭"),
             sac.SegmentedItem(label="🖼️ 图片"),
             sac.SegmentedItem(label="📊 表格"),
-            sac.SegmentedItem(label="∑ 公式"),
+            # sac.SegmentedItem(label="∑ 公式"),
         ],
         align="start",
         radius="lg",
@@ -42,6 +43,7 @@ def rich_tools():
         st.session_state.active_tool = _map.get(type_choice)
 
 def image_tool(img_dir):
+    st.divider()
     st.subheader("📷 插入图片")
 
     uploaded_img = st.file_uploader(
@@ -56,19 +58,80 @@ def image_tool(img_dir):
         st.code(md, language="markdown")
 
 def table_tool():
+    st.divider()
     st.subheader("📊 插入表格")
 
-    r = st.number_input("行数", 1, 10, 2)
-    c = st.number_input("列数", 1, 10, 2)
+    mode = st.radio(
+        "生成方式",
+        ["手动指定行列", "粘贴文本生成"],
+        horizontal=True
+    )
 
-    if st.button("生成表格"):
-        header = "| " + " | ".join(["列"]*c) + " |"
-        split  = "| " + " | ".join(["---"]*c) + " |"
-        body   = "\n".join(["| " + " | ".join([" "] * c) + " |" for _ in range(r)])
+    # =========================
+    # 方式一：手动指定行列
+    # =========================
+    if mode == "手动指定行列":
+        r = st.number_input("行数", 1, 20, 2, key="table_rows")
+        c = st.number_input("列数", 1, 20, 2, key="table_cols")
 
-        md = f"{header}\n{split}\n{body}"
-        st.success("表格 Markdown 已生成，点击右上角复制按钮复制：")
-        st.code(md, language="markdown")
+        if st.button("生成表格", key="generate_table_manual"):
+            header = "| " + " | ".join(["列"] * c) + " |"
+            split = "| " + " | ".join(["---"] * c) + " |"
+            body = "\n".join([
+                "| " + " | ".join([" "] * c) + " |"
+                for _ in range(r)
+            ])
+
+            md = f"{header}\n{split}\n{body}"
+            st.success("表格 Markdown 已生成，点击右上角复制按钮复制：")
+            st.code(md, language="markdown")
+
+    # =========================
+    # 方式二：粘贴文本生成
+    # =========================
+    else:
+        raw_text = st.text_area(
+            "粘贴无格式文本表格（每行一行，列之间用空格或 Tab 分隔）",
+            height=200
+        )
+
+        if st.button("根据文本生成 Markdown", key="generate_table_from_text"):
+            if not raw_text.strip():
+                st.warning("请输入表格文本内容")
+                return
+
+            lines = [line.strip() for line in raw_text.strip().split("\n") if line.strip()]
+            rows = []
+
+            for line in lines:
+                # 优先按 Tab 分割，否则按连续空格分割
+                if "\t" in line:
+                    cells = [cell.strip() for cell in line.split("\t")]
+                else:
+                    cells = [cell.strip() for cell in line.split()]
+                rows.append(cells)
+
+            if not rows:
+                st.warning("无法解析表格内容")
+                return
+
+            # 统一列数（取最大列数，不足补空）
+            max_cols = max(len(r) for r in rows)
+            for r in rows:
+                while len(r) < max_cols:
+                    r.append("")
+
+            header = "| " + " | ".join(rows[0]) + " |"
+            split = "| " + " | ".join(["---"] * max_cols) + " |"
+            body = "\n".join([
+                "| " + " | ".join(r) + " |"
+                for r in rows[1:]
+            ])
+
+            md = f"{header}\n{split}\n{body}" if len(rows) > 1 else f"{header}\n{split}"
+
+            st.success("Markdown 表格已生成，点击右上角复制按钮复制：")
+            st.code(md, language="markdown")
 
 def formula_tool():
     st.subheader("∑ 插入公式")
