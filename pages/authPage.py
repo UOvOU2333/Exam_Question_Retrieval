@@ -16,10 +16,18 @@ def login():
     # ===== 未登录：登录表单 =====
     st.subheader("登录")
 
-    username = st.text_input("用户名")
-    password = st.text_input("密码", type="password")
+    # ===== 使用 form 支持回车提交 =====
+    with st.form("login_form", clear_on_submit=False):
+        username = st.text_input("用户名")
+        password = st.text_input("密码", type="password")
 
-    if st.button("登录"):
+        submitted = st.form_submit_button(
+            "登录",
+            type="primary",
+            use_container_width=True
+        )
+
+    if submitted:
         ok, role = authenticate(username, password)
         if ok:
             st.session_state["logged_in"] = True

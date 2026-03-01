@@ -16,7 +16,7 @@ def upload():
     # ===== 权限校验 =====
     require_role("admin", "editor")
 
-    st.title("试题上传（支持 Markdown / LaTeX）")
+    st.title("试题上传")
 
     st.divider()
 
