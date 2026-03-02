@@ -31,10 +31,6 @@ def upload():
 
         st.divider()
 
-        year = st.number_input("年份", min_value=1980, max_value=2050, step=10)
-        paper_type = st.text_input("卷种")
-        question_no = st.text_input("题号")
-
         content = st.text_area(
             "试题内容",
             height=220,
@@ -52,6 +48,10 @@ def upload():
             height=180,
             placeholder="请输入解析（支持 Markdown / LaTeX）"
         )
+
+        year = st.number_input("年份", min_value=1980, max_value=2050, step=10)
+        paper_type = st.text_input("卷种")
+        question_no = st.text_input("题号")
 
         source = st.text_input("题目来源")
         analysis_source = st.text_input("解析来源")

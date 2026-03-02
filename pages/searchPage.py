@@ -11,55 +11,125 @@ def search():
     # ===== 登录校验（viewer 也允许）=====
     require_login()
 
-    col_title, col_year = st.columns([1,1])
+    col_title, col_show = st.columns([1,1])
 
     with col_title: 
         st.title("📚 试题检索")
 
-    with col_year:
-        years = st.multiselect(
-            "年份",
-            options=list(range(2000, 2031)),
-            placeholder="可多选"
+    with col_show:
+        show_choice = st.radio(
+            "搜索项",
+            options=["隐藏", "基础", "高级"],
+            horizontal=True,
+            key="if_show_radio"
         )
 
-    # =========================
-    # 检索输入区
-    # =========================
+    if show_choice != "隐藏":
+        # =========================
+        # 检索输入区
+        # =========================
 
-    options = [
-        ("全部字段", "all"),
-        ("卷种", "paper_type"),
-        ("题号", "question_no"),
-        ("题目内容", "content"),
-        ("题目来源", "source"),
-        ("答案", "answer"),
-        ("解析", "analysis"),
-        ("解析来源", "analysis_source"),
-    ]
+        col_year, col_type, col_no = st.columns([3,1,1])
 
-    selected_index = sac.segmented(
-        items=[sac.SegmentedItem(label=o[0]) for o in options],
-        align="start",
-        size="md",
-        return_index=True
-    )
+        with col_year:
+            years = st.multiselect(
+                "年份",
+                options=list(range(2000, 2031)),
+                placeholder="可多选"
+            )
 
-    field = options[selected_index][1]
+        with col_type:
+            paper_type = st.text_input(
+                "卷种",
+                placeholder="请输入卷种"
+            )
+
+        with col_no:
+            question_no = st.text_input(
+                "题号",
+                placeholder="请输入题号"
+            )
+
+        options_que = [
+            ("全部字段", "all"),
+            ("题目内容", "content"),
+            ("答案", "answer"),
+            ("解析", "analysis"),
+        ]
+
+        options_sou = [
+            ("全部字段", "all"),
+            ("题目来源", "source"),
+            ("解析来源", "analysis_source"),
+        ]
+
+        col_cho, col_op = st.columns([1,1])
+
+        with col_cho:
+            search_scope = st.radio(
+                "搜索范围",
+                options=["题目/答案/解析", "题目来源/解析来源"],
+                horizontal=True,
+                key="search_scope_radio"
+            )
+
+        with col_op:
+            if search_scope == "题目/答案/解析":
+                selected_index_que = sac.segmented(
+                    items=[sac.SegmentedItem(label=o[0]) for o in options_que],
+                    align="start",
+                    size="md",
+                    return_index=True,
+                    key="segmented_que",
+                    use_container_width=True
+                )
+                field_que = options_que[selected_index_que][1]
+                field_sou = "all"
+
+            else:
+                selected_index_sou = sac.segmented(
+                    items=[sac.SegmentedItem(label=o[0]) for o in options_sou],
+                    align="start",
+                    size="md",
+                    return_index=True,
+                    key="segmented_sou",
+                    use_container_width=True
+                )
+                field_sou = options_sou[selected_index_sou][1]
+                field_que = "all"
+
+        # if show_choice == "高级搜索":
+
+    else:
+        years = []
+        paper_type = ""
+        question_no = ""
+        field_que = "all"
+        field_sou = "all"
+        search_scope = "题目/答案/解析"
 
     keyword = st.text_input(
-        "🔍 关键词检索（支持模糊匹配）",
-        placeholder="可搜索题目 / 答案 / 解析中的任意关键词"
+        "🔍 综合关键词",
+        placeholder="请输入关键词"
     )
 
-    if not keyword.strip() and not years:
-        st.info("请输入关键词或选择年份开始检索")
+    if not paper_type.strip() and not question_no.strip() and not keyword.strip() and not years:
+        st.info("请输入搜索条件开始检索")
         return
 
     # =========================
     # 执行检索
     # =========================
-    results = search_questions(keyword=keyword.strip(), field=field, years=years)
+    results = search_questions(
+        paper_type=paper_type.strip() or None,
+        question_no=question_no.strip() or None,
+        keyword=keyword.strip() or None,
+        years=years,
+        field_que=field_que,
+        field_sou=field_sou,
+        search_scope="qa" if search_scope == "题目/答案/解析" else "source",
+        fuzzy=True
+    )
 
     st.divider()
 
@@ -78,9 +148,9 @@ def search():
         answer = q["answer"]
         analysis = q["analysis"]
         source = q["source"]
-        analysis_source = q["analysis_source"],
-        year = q["year"],
-        paper_type = q["paper_type"],
+        analysis_source = q["analysis_source"]
+        year = q["year"]
+        paper_type = q["paper_type"]
         question_no = q["question_no"]
 
         with st.expander(f"📘 题目 #{qid}", expanded=False):
@@ -96,24 +166,20 @@ def search():
                 st.markdown("### 解析")
                 render_markdown(analysis)
 
+            caption_parts = []
             if year:
-                if  paper_type:
-                    st.caption(f"📅 年份卷种：{year} {paper_type}")
-                else:
-                    st.caption(f"📅 年份：{year}")
-            else:
-                if paper_type:
-                    st.caption(f"📑 卷种：{paper_type}")
-
+                caption_parts.append(f"📅 年份：{year}")
+            if paper_type:
+                caption_parts.append(f"📥 卷种：{paper_type}")
             if source:
-                if question_no:
-                    st.caption(f"📌 来源：{source} {question_no}")
-                else:
-                    st.caption(f"📌 来源：{source}")
-            
+                caption_parts.append(f"📌 来源：{source}")
+            if question_no:
+                caption_parts.append(f"📑 题号：{question_no}")
             if analysis_source:
-                    st.caption(f"🔍 解析来源：{analysis_source}")
-                    
+                caption_parts.append(f"🔍 解析来源：{analysis_source}")
+
+            if caption_parts:
+                st.caption(" | ".join(caption_parts))
 
             if st.button("更新试题", key=f"update_btn_{qid}"):
                 update_page(qid)

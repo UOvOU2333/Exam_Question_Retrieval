@@ -59,20 +59,27 @@ def image_tool(img_dir):
 
 def table_tool():
     st.divider()
-    st.subheader("📊 插入表格")
+    col_title_table, col_choice_table = st.columns([2,3])
 
-    mode = st.radio(
-        "生成方式",
-        ["手动指定行列", "粘贴文本生成"],
-        horizontal=True
-    )
+    with col_title_table:
+        st.subheader("📊 插入表格")
+
+    with col_choice_table:
+        mode = st.radio(
+            "生成方式",
+            ["手动指定行列", "粘贴文本生成"],
+            horizontal=True
+        )
 
     # =========================
     # 方式一：手动指定行列
     # =========================
     if mode == "手动指定行列":
-        r = st.number_input("行数", 1, 20, 2, key="table_rows")
-        c = st.number_input("列数", 1, 20, 2, key="table_cols")
+        col_r, col_c = st.columns([1,1])
+        with col_r:
+            r = st.number_input("行数", 1, 20, 2, key="table_rows")
+        with col_c:
+            c = st.number_input("列数", 1, 20, 2, key="table_cols")
 
         if st.button("生成表格", key="generate_table_manual"):
             header = "| " + " | ".join(["列"] * c) + " |"
