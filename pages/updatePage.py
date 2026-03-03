@@ -4,8 +4,7 @@ import streamlit as st
 from utils.auth_utils import require_role
 from utils.render_utils import render_markdown
 from utils.multi_func import rich_markdown
-from services.question_services import update_question, search_qid
-
+from services.question_services import update_question, search_qid, move_to_recycle_bin
 
 # =========================
 # 图片存储配置
@@ -13,9 +12,13 @@ from services.question_services import update_question, search_qid
 IMAGE_DIR = "static/images/questions"
 os.makedirs(IMAGE_DIR, exist_ok=True)
 
+
 def update():
     # ===== 权限校验 =====
     require_role("admin", "editor")
+
+    if "show_delete_dialog" not in st.session_state:
+        st.session_state.show_delete_dialog = False
     
     qid = st.session_state.get("update_qid")
 
@@ -106,24 +109,74 @@ def update():
 
         st.divider()
 
-        # =========================
-        # 提交试题
-        # =========================
-        if st.button("提交试题", type="primary"):
-            if not content.strip():
-                st.error("❌ 题目内容不能为空")
-                return
+        role = st.session_state["role"]
+        col1, col2, col3 = st.columns([3, 1, 1])  # 使用三列布局，左侧和右侧放按钮
 
-            update_question(
-                qid=qid,
-                content=content,
-                answer=answer,
-                analysis=analysis,
-                source=source,
-                analysis_source=analysis_source,
-                year=year,
-                paper_type=paper_type,
-                question_no=question_no
-            )
+        with col1:
+            # =========================
+            # 提交试题
+            # =========================
+            if st.button("提交试题", type="primary"):
+                if not content.strip():
+                    st.error("❌ 题目内容不能为空")
+                    return
 
-            st.success("🎉 试题上传成功")
+                update_question(
+                    qid=qid,
+                    content=content,
+                    answer=answer,
+                    analysis=analysis,
+                    source=source,
+                    analysis_source=analysis_source,
+                    year=year,
+                    paper_type=paper_type,
+                    question_no=question_no
+                )
+
+                st.success("🎉 试题上传成功")
+
+        with col2:
+            # ============
+            # 留空
+            # ============
+            st.empty()
+
+        with col3:
+            # ==================
+            # 删除试题
+            # ==================
+            if st.button("删除试题",
+                         type="secondary",
+                         disabled=(role != "admin")):
+                st.session_state.show_delete_dialog = True
+
+        # =========================
+        # 删除确认对话框
+        # =========================
+        if st.session_state.get("show_delete_dialog", False):
+            delete_confirm_dialog(qid)
+
+
+# =========================
+# 删除确认对话框函数
+# =========================
+@st.dialog("确认删除", width="small")
+def delete_confirm_dialog(qid):
+    st.warning(f"⚠️ 确定要删除题目 ID {qid} 吗？（将移动到回收站）")
+
+    col_confirm1, col_confirm2 = st.columns(2)
+
+    with col_confirm1:
+        if st.button("确定", type="primary", use_container_width=True):
+            try:
+                move_to_recycle_bin(qid)
+                st.success(f"✅ 题目 ID {qid} 已成功移至回收站")
+                st.session_state.show_delete_dialog = False
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ 删除失败：{str(e)}")
+
+    with col_confirm2:
+        if st.button("取消", type="secondary", use_container_width=True):
+            st.session_state.show_delete_dialog = False
+            st.rerun()
