@@ -85,54 +85,111 @@ def get_question_detail(question_id):
 # =====================
 # 从数据库查询问题
 # =====================
-def search_questions(keyword: str, field: str = "all", years: list | None = None):
+def search_questions(
+    paper_type: str | None = None,
+    question_no: str | None = None,
+    keyword: str | None = None,
+    years: list | None = None,
+    field_que: str = "all",
+    field_sou: str = "all",
+    search_scope: str = "qa",   # "qa" 或 "source"
+    fuzzy: bool = True
+):
     conn = get_conn()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    kw = f"%{keyword}%"
-
     base_sql = """
         SELECT questionID, content, answer, analysis, source, analysis_source,
-            year, paper_type, question_no
+               year, paper_type, question_no
         FROM questions
     """
 
     conditions = []
     params = []
 
-    # ===== 关键词条件 =====
-    if keyword.strip():
-        if field != "all":
-            conditions.append(f"{field} LIKE ?")
-            params.append(kw)
+    # 卷种
+    if paper_type:
+        if fuzzy:
+            conditions.append("paper_type LIKE ?")
+            params.append(f"%{paper_type}%")
         else:
-            conditions.append("""
-                (content LIKE ?
-                OR answer LIKE ?
-                OR analysis LIKE ?)
-            """)
-            params.extend([kw, kw, kw])
+            conditions.append("paper_type = ?")
+            params.append(paper_type)
 
-    # ===== 年份条件（支持多选）=====
+    # 题号
+    if question_no:
+        if fuzzy:
+            conditions.append("question_no LIKE ?")
+            params.append(f"%{question_no}%")
+        else:
+            conditions.append("question_no = ?")
+            params.append(question_no)
+
+    # 综合关键词
+    if keyword and keyword.strip():
+        kw = f"%{keyword}%" if fuzzy else keyword
+
+        keyword_conditions = []
+
+        if search_scope == "qa":
+            # 仅搜索题目/答案/解析
+            if field_que == "all":
+                fields = ["content", "answer", "analysis"]
+            else:
+                fields = [field_que]
+
+        elif search_scope == "source":
+            # 仅搜索来源
+            if field_sou == "all":
+                fields = ["source", "analysis_source"]
+            else:
+                fields = [field_sou]
+        else:
+            fields = []
+
+        for f in fields:
+            if fuzzy:
+                keyword_conditions.append(f"{f} LIKE ?")
+            else:
+                keyword_conditions.append(f"{f} = ?")
+            params.append(kw)
+
+        if keyword_conditions:
+            conditions.append("(" + " OR ".join(keyword_conditions) + ")")
+
+    # 年份
     if years:
         placeholders = ",".join(["?"] * len(years))
         conditions.append(f"year IN ({placeholders})")
         params.extend(years)
 
-    # ===== 拼接 WHERE =====
     if conditions:
         sql = base_sql + " WHERE " + " AND ".join(conditions) + " ORDER BY created_at DESC"
     else:
         sql = base_sql + " ORDER BY created_at DESC"
 
     cur.execute(sql, tuple(params))
-
     rows = cur.fetchall()
     conn.close()
-
     return rows
 
+
+def search_qid(qid):
+    conn = get_conn()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT questionID, content, answer, analysis, source, analysis_source,
+               year, paper_type, question_no
+        FROM questions
+        WHERE questionID = ?
+    """, (qid,))
+
+    row = cur.fetchone()
+    conn.close()
+    return row
 
 # =====================
 # 更新单题

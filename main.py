@@ -4,6 +4,7 @@ import streamlit_antd_components as sac
 from pages.authPage import login
 from pages.searchPage import search
 from pages.uploadPage import upload
+from pages.updatePage import update
 from pages.userManagePage import user_manage
 
 
@@ -22,6 +23,7 @@ def main():
                 sac.MenuItem('用户中心', icon='person'),
                 sac.MenuItem('试题检索', icon='database'),
                 sac.MenuItem('试题上传', icon='upload'),
+                sac.MenuItem('试题更新', icon='recycle'),
                 sac.MenuItem('用户管理', icon='people'),
         ],
             open_all=True
@@ -47,6 +49,12 @@ def main():
             st.error("无权限访问")
         else:
             upload()
+    
+    elif selected == '试题更新':
+        if st.session_state.get("role") != "admin":
+            st.error("无权限访问")
+        else:
+            update()
 
     elif selected == '用户管理':
         if st.session_state.get("role") != "admin":
