@@ -4,14 +4,13 @@ import streamlit_antd_components as sac
 from utils.auth_utils import require_login
 from utils.render_utils import render_markdown
 from services.question_services import search_questions
-from pages.updatePage import update_page
 
 
 def search():
     # ===== 登录校验（viewer 也允许）=====
     require_login()
 
-    col_title, col_show = st.columns([1,1])
+    col_title, col_show, col_tag = st.columns([2,2,1])
 
     with col_title: 
         st.title("📚 试题检索")
@@ -25,11 +24,15 @@ def search():
         )
 
     if show_choice != "隐藏":
+
+        with col_tag:
+            flag_type = st.toggle("卷种精确")
+            flag_no = st.toggle("题号精确")
         # =========================
         # 检索输入区
         # =========================
 
-        col_year, col_type, col_no = st.columns([3,1,1])
+        col_year, col_type, col_no = st.columns([5,2,2])
 
         with col_year:
             years = st.multiselect(
@@ -181,5 +184,10 @@ def search():
             if caption_parts:
                 st.caption(" | ".join(caption_parts))
 
-            if st.button("更新试题", key=f"update_btn_{qid}"):
-                update_page(qid)
+            col_l, col_r = st.columns([1,4])
+            with col_l:
+                if st.button("更新试题", key=f"update_btn_{qid}"):
+                    st.session_state["update_qid"] = qid
+                    with col_r:
+                        st.success("题号已经记下了，请立即前往试题更新页修改吧！")
+            

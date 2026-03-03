@@ -21,6 +21,8 @@ def login():
         username = st.text_input("用户名")
         password = st.text_input("密码", type="password")
 
+        st.space()
+
         submitted = st.form_submit_button(
             "登录",
             type="primary",

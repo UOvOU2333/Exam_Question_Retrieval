@@ -3,7 +3,7 @@ import streamlit as st
 
 from utils.auth_utils import require_role
 from utils.render_utils import render_markdown
-from utils.rich_text import rich_markdown
+from utils.multi_func import rich_markdown
 from services.question_services import create_question
 
 # =========================
@@ -50,7 +50,8 @@ def upload():
         )
 
         year = st.number_input("年份", min_value=1980, max_value=2050, step=10)
-        paper_type = st.text_input("卷种")
+        paper_type = st.text_input("卷种",
+            placeholder="XX卷")
         question_no = st.text_input("题号")
 
         source = st.text_input("题目来源")

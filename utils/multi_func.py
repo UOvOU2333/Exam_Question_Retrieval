@@ -6,13 +6,13 @@ from utils.file_utils import save_uploaded_file_once
 
 def rich_markdown(img_dir):
 
-    col_title, col_choice = st.columns([1,2])
+    col_rich, col_remark = st.columns([1,1])
 
-    with col_title:
-        st.subheader("✏️ 编辑区")
-
-    with col_choice:
+    with col_rich:
         rich_tools()          # 顶部工具条
+
+    with col_remark:
+        remark_tools()
 
     render_tool_panel(img_dir)   # 动态工具面板
 
@@ -22,6 +22,7 @@ def rich_tools():
         st.session_state.active_tool = None
 
     type_choice = sac.segmented(
+        label="富文本工具",
         items=[
             sac.SegmentedItem(label="⛔️ 关闭"),
             sac.SegmentedItem(label="🖼️ 图片"),
@@ -29,8 +30,7 @@ def rich_tools():
             # sac.SegmentedItem(label="∑ 公式"),
         ],
         align="start",
-        radius="lg",
-        size="md",
+        size="sm",
         key="rich_tool_segmented"
     )
 
@@ -42,8 +42,29 @@ def rich_tools():
         }
         st.session_state.active_tool = _map.get(type_choice)
 
+def remark_tools():
+
+    if "active_tool" not in st.session_state:
+        st.session_state.active_tool = None
+
+    type_choice = sac.segmented(
+        label="添加备注",
+        items=[
+            sac.SegmentedItem(label="⛔️ 关闭"),
+            sac.SegmentedItem(label="📝 备注")
+        ],
+        align="start",
+        size="sm",
+        key="rich_tool_remark"
+    )
+
+    if type_choice:
+        _map = {
+            "📝 备注": "image"
+        }
+        st.session_state.active_remark_tool = _map.get(type_choice)
+
 def image_tool(img_dir):
-    st.divider()
     st.subheader("📷 插入图片")
 
     uploaded_img = st.file_uploader(
@@ -58,7 +79,6 @@ def image_tool(img_dir):
         st.code(md, language="markdown")
 
 def table_tool():
-    st.divider()
     col_title_table, col_choice_table = st.columns([2,3])
 
     with col_title_table:
@@ -152,6 +172,7 @@ def formula_tool():
 
 def render_tool_panel(img_dir):
     tool = st.session_state.active_tool
+    tool_remark = st.session_state.active_remark_tool
 
     if tool == "image":
         image_tool(img_dir)
@@ -161,6 +182,9 @@ def render_tool_panel(img_dir):
 
     elif tool == "formula":
         formula_tool()
+
+    if tool_remark == "remark":
+        remark_tool()
 
 def img_upload(img_dir):
     # =========================
@@ -186,3 +210,6 @@ def img_upload(img_dir):
         st.success("图片上传成功")
         st.markdown("⬇️ **复制下面这行，粘贴到任意 Markdown 编辑区即可使用：**")
         st.code(f"![图片说明]({img_url})")
+
+def remark_tool():
+    return

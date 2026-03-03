@@ -175,6 +175,22 @@ def search_questions(
     return rows
 
 
+def search_qid(qid):
+    conn = get_conn()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT questionID, content, answer, analysis, source, analysis_source,
+               year, paper_type, question_no
+        FROM questions
+        WHERE questionID = ?
+    """, (qid,))
+
+    row = cur.fetchone()
+    conn.close()
+    return row
+
 # =====================
 # 更新单题
 # =====================
