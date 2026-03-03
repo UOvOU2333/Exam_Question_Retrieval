@@ -7,7 +7,7 @@ from services.user_services import (
     get_all_users,
     create_user,
     update_user_role,
-    delete_user
+    soft_delete_user
 )
 
 
@@ -102,6 +102,6 @@ def user_manage():
                 if selected_user[1] == st.session_state["username"]:
                     st.error("不能删除当前登录用户")
                 else:
-                    delete_user(selected_id)
+                    soft_delete_user(selected_id)
                     st.success("用户已删除")
                     st.rerun()
