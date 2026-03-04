@@ -45,11 +45,14 @@ def search_questions(
     base_sql = """
         SELECT questionID, content, answer, analysis, source, analysis_source,
                year, paper_type, question_no
-        FROM questions
+        FROM questions 
     """
 
     conditions = []
     params = []
+
+    # 默认条件：不在回收站中
+    conditions.append("isInRecycleBin = 0")
 
     # 卷种
     if paper_type:
@@ -133,6 +136,7 @@ def search_qid(qid):
     row = cur.fetchone()
     conn.close()
     return row
+
 
 # =====================
 # 更新单题
