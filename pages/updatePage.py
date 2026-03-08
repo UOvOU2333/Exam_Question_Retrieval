@@ -49,8 +49,6 @@ def update():
             ori_paper_type = qInfo["paper_type"]
             ori_question_no = qInfo["question_no"]
 
-        st.divider()
-
     if qid != None and qInfo:
         # =========================
         # Markdown 编辑 + 实时预览
