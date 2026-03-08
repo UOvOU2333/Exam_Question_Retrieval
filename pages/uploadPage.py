@@ -28,7 +28,7 @@ def upload():
 
     with col_edit:
 
-        rich_markdown(IMAGE_DIR)
+        rich_markdown(IMAGE_DIR, True)
 
         st.divider()
 
@@ -83,10 +83,10 @@ def upload():
     # =========================
     if st.button("提交试题", type="primary"):
         if not content.strip():
-            st.error("❌ 题目内容不能为空")
+            st.error("题目内容不能为空")
             return
 
-        create_question(
+        qid = create_question(
             content=content,
             answer=answer,
             analysis=analysis,
@@ -97,6 +97,5 @@ def upload():
             question_no=question_no
         )
 
-        st.success("🎉 试题上传成功")
-        st.session_state["nav"] = "数据库"
-        st.rerun()
+        st.session_state["update_qid"] = qid
+        st.success(f"🎉 试题上传成功，ID：{qid}，如需添加备注可直接前往更新页。")
