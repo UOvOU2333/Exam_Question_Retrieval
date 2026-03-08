@@ -25,7 +25,7 @@ def main():
             items=[
                 sac.MenuItem('试题更新', icon='recycle'),
                 sac.MenuItem('试题上传', icon='upload'),
-                sac.MenuItem('标签管理', icon='tags'),
+                sac.MenuItem('备注管理', icon='tags'),
                 sac.MenuItem('用户管理', icon='people'),
                 sac.MenuItem('用户中心', icon='person'),
         ],
@@ -54,7 +54,7 @@ def main():
         else:
             user_manage()
 
-    elif selected == '标签管理':
+    elif selected == '备注管理':
         if st.session_state.get("role") != "admin":
             st.error("无权限访问")
         else:

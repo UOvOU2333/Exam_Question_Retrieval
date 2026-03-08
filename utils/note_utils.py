@@ -185,13 +185,15 @@ def note_type_selector_component():
             
             # 添加状态列
             df['状态'] = df['is_deleted'].apply(lambda x: '已删除' if x else '正常')
-            
+            df['创建人'] = df['created_by'].apply(lambda x: get_user_by_id(x)[1])
+
             # 显示数据表
             st.dataframe(
-                df[['type_name', '状态', 'created_at', 'updated_at']],
+                df[['type_name', '状态', '创建人', 'created_at', 'updated_at']],
                 column_config={
                     "type_name": "类型名称",
                     "状态": "状态",
+                    "创建人": "创建人",
                     "created_at": "创建时间",
                     "updated_at": "更新时间"
                 },
@@ -425,6 +427,16 @@ def compact_note_type_selector():
             st.session_state.selected_type_id = types_dict[selected_name]
     else:
         st.warning("暂无类型，请先添加")
+        with st.form("quick_add", clear_on_submit=True):
+            new_name = st.text_input("新增类型", placeholder="输入新增类型名称", label_visibility="collapsed")
+            if st.form_submit_button("添加", width='stretch', type='primary'):
+                if new_name:
+                    new_id = create_note_type(new_name, created_by=st.session_state.get("user_id"))
+                    if new_id:
+                        st.success("添加成功")
+                        st.rerun()
+                    else:
+                        st.error("名称已存在")
     
     if st.session_state.selected_type_id:
         with st.expander("快速操作"):
@@ -461,7 +473,5 @@ def compact_note_type_selector():
                         st.rerun()
                     else:
                         st.error("更新失败")
-    else:
-        st.info("从左侧选择一个类型进行编辑或删除")
 
     return types_dict[selected_name] if st.session_state.selected_type_id else None
