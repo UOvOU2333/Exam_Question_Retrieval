@@ -3,9 +3,7 @@ import streamlit_antd_components as sac
 
 from pages.authPage import login
 from pages.searchPage import search
-from pages.uploadPage import upload
-from pages.updatePage import update
-from pages.userManagePage import user_manage
+from utils.navbar_utils import navbar
 
 
 st.set_page_config(
@@ -17,14 +15,12 @@ st.set_page_config(
 def main():
     # Sidebar navigation
     with st.sidebar:
+        navbar("homePage")
         st.title("题库系统")
         selected = sac.menu(
             items=[
-                sac.MenuItem('用户中心', icon='person'),
                 sac.MenuItem('试题检索', icon='database'),
-                sac.MenuItem('试题上传', icon='upload'),
-                sac.MenuItem('试题更新', icon='recycle'),
-                sac.MenuItem('用户管理', icon='people'),
+                sac.MenuItem('用户中心', icon='person'),
         ],
             open_all=True
         )
@@ -34,33 +30,15 @@ def main():
         del st.session_state["nav"]
 
     # Page Routing
-    if selected == '用户中心':
-        login()
-
-    elif selected == '试题检索':
+    if selected == '试题检索':
         if not st.session_state.get("logged_in"):
             st.warning("请先登录")
             login()
         else:
             search()
-
-    elif selected == '试题上传':
-        if st.session_state.get("role") != "admin":
-            st.error("无权限访问")
-        else:
-            upload()
     
-    elif selected == '试题更新':
-        if st.session_state.get("role") != "admin":
-            st.error("无权限访问")
-        else:
-            update()
-
-    elif selected == '用户管理':
-        if st.session_state.get("role") != "admin":
-            st.error("无权限访问")
-        else:
-            user_manage()
+    elif selected == '用户中心':
+        login()
 
 
 if __name__ == "__main__":

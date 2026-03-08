@@ -11,3 +11,9 @@ def require_role(*roles):
     if st.session_state.get("role") not in roles:
         st.error("权限不足")
         st.stop()
+
+
+def check_role(*roles):
+    if st.session_state.get("role") not in roles:
+        return False
+    return True

@@ -3,6 +3,7 @@ import streamlit_antd_components as sac
 
 from utils.auth_utils import require_login
 from utils.render_utils import render_markdown
+from utils.note_utils import display_notes_list
 from services.question_services import search_questions
 
 
@@ -184,10 +185,9 @@ def search():
             if caption_parts:
                 st.caption(" | ".join(caption_parts))
 
-            col_l, col_r = st.columns([1,4])
-            with col_l:
-                if st.button("更新试题", key=f"update_btn_{qid}"):
-                    st.session_state["update_qid"] = qid
-                    with col_r:
-                        st.success("题号已经记下了，请立即前往试题更新页修改吧！")
+            display_notes_list(qid)
+
+            if st.button("更新试题", key=f"update_btn_{qid}"):
+                st.session_state["update_qid"] = qid
+                st.switch_page("pages/managingPage.py")
             

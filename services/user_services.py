@@ -19,7 +19,7 @@ def authenticate(username, password):
     cur = conn.cursor()
 
     cur.execute(
-        "SELECT username, password_hash, role FROM users WHERE username = ? AND is_deleted = 0",
+        "SELECT id, username, password_hash, role FROM users WHERE username = ? AND is_deleted = 0",
         (username,)
     )
     row = cur.fetchone()
@@ -27,13 +27,13 @@ def authenticate(username, password):
     conn.close()
 
     if not row:
-        return False, None
+        return False, None, None
 
-    username_db, password_hash_db, role = row
+    id, username_db, password_hash_db, role = row
     if hash_password(password) == password_hash_db:
-        return True, role
+        return True, role, id
 
-    return False, None
+    return False, None, None
 
 
 def get_all_users():
@@ -112,3 +112,11 @@ def restore_user(conn, user_id):
     cur.execute(sql, (user_id,))
     conn.commit()
     conn.close()
+
+def get_user_by_id(user_id):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id, username, role, created_at FROM users WHERE id = ?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row
