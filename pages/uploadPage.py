@@ -12,6 +12,7 @@ from services.question_services import create_question
 IMAGE_DIR = "static/images/questions"
 os.makedirs(IMAGE_DIR, exist_ok=True)
 
+
 def upload():
     # ===== 权限校验 =====
     require_role("admin", "editor")
