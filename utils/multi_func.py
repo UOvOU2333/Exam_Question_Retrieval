@@ -4,17 +4,18 @@ import streamlit_antd_components as sac
 
 from utils.file_utils import save_uploaded_file_once
 
-def rich_markdown(img_dir):
+def rich_markdown(img_dir, is_upload_page = False):
 
     col_rich, col_remark = st.columns([1,1])
 
     with col_rich:
         rich_tools()          # 顶部工具条
 
-    with col_remark:
-        remark_tools()
+    if not is_upload_page:
+        with col_remark:
+            remark_tools()
 
-    render_tool_panel(img_dir)   # 动态工具面板
+    render_tool_panel(img_dir, is_upload_page)   # 动态工具面板
 
 def rich_tools():
 
@@ -45,7 +46,7 @@ def rich_tools():
 def remark_tools():
 
     if "active_tool" not in st.session_state:
-        st.session_state.active_tool = None
+        st.session_state.active_remark_tool = None
 
     type_choice = sac.segmented(
         label="添加备注",
@@ -170,9 +171,8 @@ def formula_tool():
         st.success("公式 Markdown 已生成，点击右上角复制按钮复制：")
         st.code(md, language="markdown")
 
-def render_tool_panel(img_dir):
+def render_tool_panel(img_dir, is_upload_page = False):
     tool = st.session_state.active_tool
-    tool_remark = st.session_state.active_remark_tool
 
     if tool == "image":
         image_tool(img_dir)
@@ -183,8 +183,10 @@ def render_tool_panel(img_dir):
     elif tool == "formula":
         formula_tool()
 
-    if tool_remark == "remark":
-        remark_tool()
+    if not is_upload_page:
+        tool_remark = st.session_state.active_remark_tool
+        if tool_remark == "remark":
+            remark_tool()
 
 def img_upload(img_dir):
     # =========================
