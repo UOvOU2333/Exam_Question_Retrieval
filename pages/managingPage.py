@@ -23,8 +23,8 @@ def main():
         st.title("题库系统")
         selected = sac.menu(
             items=[
-                sac.MenuItem('试题上传', icon='upload'),
                 sac.MenuItem('试题更新', icon='recycle'),
+                sac.MenuItem('试题上传', icon='upload'),
                 sac.MenuItem('标签管理', icon='tags'),
                 sac.MenuItem('用户管理', icon='people'),
                 sac.MenuItem('用户中心', icon='person'),

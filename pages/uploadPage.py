@@ -24,13 +24,11 @@ def upload():
     # =========================
     # Markdown 编辑 + 实时预览
     # =========================
+    rich_markdown(IMAGE_DIR, True)
+
     col_edit, col_preview = st.columns(2)
-
+    
     with col_edit:
-
-        rich_markdown(IMAGE_DIR, True)
-
-        st.divider()
 
         content = st.text_area(
             "试题内容",

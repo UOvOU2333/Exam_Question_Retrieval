@@ -112,3 +112,11 @@ def restore_user(conn, user_id):
     cur.execute(sql, (user_id,))
     conn.commit()
     conn.close()
+
+def get_user_by_id(user_id):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id, username, role, created_at FROM users WHERE id = ?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row

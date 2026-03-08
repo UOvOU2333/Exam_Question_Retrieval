@@ -1,8 +1,137 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 
 from services.note_services import *
+from services.user_services import get_user_by_id
+from utils.auth_utils import check_role
+from utils.render_utils import render_markdown
+
+
+def question_notes_component(qid=None):
+    """
+    题目备注管理组件 - 紧凑版本，只占屏幕1/2宽度
+    需要 st.session_state["update_qid"] 存在
+    """
+    if qid:
+        question_id = qid
+    # 检查是否有选中的题目
+    elif "update_qid" not in st.session_state or not st.session_state["update_qid"]:
+        st.info("请先在题目列表中选择一个题目并点击更新")
+        return
+    else:
+        question_id = st.session_state["update_qid"]
+    
+    # 初始化session状态
+    if 'selected_note_id' not in st.session_state:
+        st.session_state.selected_note_id = None
+    if 'refresh_notes' not in st.session_state:
+        st.session_state.refresh_notes = False
+    
+    # 创建标题行，显示当前题目ID
+    title_col1, title_col2 = st.columns([3, 1])
+    with title_col1:
+        st.subheader(f"题目备注 (题目ID: {question_id})")
+    with title_col2:
+        if st.button("刷新", use_container_width=True):
+            st.session_state.refresh_notes = not st.session_state.refresh_notes
+            st.rerun()
+    
+    # 创建左右两列布局：左侧类型选择，右侧备注列表
+    col_left, col_right = st.columns([2, 1])
+    
+    with col_right:
+        # 调用紧凑的类型选择组件
+        selected_type_id = compact_note_type_selector()
+    
+    with col_left:
+        add_note_component(question_id, selected_type_id)
+
+    display_notes_list(question_id)
+
+
+def add_note_component(question_id, selected_type_id):
+    # 新增备注表单（固定在顶部）
+    with st.container(border=True):
+        with st.form("add_note_form", clear_on_submit=True):
+            note_content = st.text_area(
+                "内容",
+                placeholder="输入备注内容...",
+                height=80,
+                label_visibility="collapsed"
+            )
+            
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                submitted = st.form_submit_button(
+                    "新增备注",
+                    type="primary",
+                    use_container_width=True
+                )
+            with col2:
+                if not selected_type_id:
+                    st.error("未选择")
+                else:
+                    st.success(f"{get_note_type(selected_type_id)['type_name']}")
+            
+            if submitted:
+                if not selected_type_id:
+                    st.error("请先选择一个笔记类型")
+                elif not note_content:
+                    st.warning("请输入备注内容")
+                else:
+                    note_id = create_question_note(
+                        question_id=question_id,
+                        type_id=selected_type_id,
+                        content=note_content,
+                        created_by=st.session_state.get("user_id", 1)
+                    )
+                    if note_id:
+                        st.success("备注添加成功")
+                        st.rerun()
+                    else:
+                        st.error("添加失败")
+    
+
+
+def display_notes_list(question_id):
+    """
+    显示题目的备注列表
+    """
+    st.subheader("备注列表")
+    
+    # 获取该题目的所有备注
+    notes = get_question_notes(question_id)
+    
+    # 显示备注列表
+    if not notes:
+        st.info("暂无备注")
+    else:
+        for note in notes:
+            with st.container(border=True):
+                # 备注头部：类型 + 时间
+                col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+                with col1:
+                    st.caption(f"🏷️ {note['type_name']}")
+                with col2:
+                    st.caption(f"🕒 {note['created_at']}")
+                with col3:
+                    user = get_user_by_id(note['created_by'])
+                    user_name = user[1] if user else "未知用户"
+                    st.caption(f"🙎 {user_name} (ID:{note['created_by']})")
+                if check_role("admin", "editor"):
+                    with col4:
+                        # 操作按钮
+                        if st.button("删除", key=f"del_note_{note['note_id']}", help="删除", use_container_width=True):
+                            if soft_delete_question_note(note['note_id'], st.session_state.get("user_id", 1)):
+                                st.success("删除成功")
+                                st.rerun()
+                            else:
+                                st.error("删除失败")
+                
+                # 备注内容
+                render_markdown(note['content'])
+                
+                # 如果被编辑过，显示编辑信息
 
 
 def note_type_selector_component():
@@ -332,20 +461,7 @@ def compact_note_type_selector():
                         st.rerun()
                     else:
                         st.error("更新失败")
-            
-            # 软删除按钮
-            if st.button(
-                "软删除选中类型",
-                type="secondary",
-                width='stretch',
-                key="soft_delete_btn_compact"
-            ):
-                if soft_delete_note_type(st.session_state.selected_type_id, updated_by=1):
-                    st.success("删除成功")
-                    st.session_state.selected_type_id = None
-                    st.session_state.selected_type_name = None
-                    st.rerun()
-                else:
-                    st.error("删除失败，可能已被删除")
     else:
         st.info("从左侧选择一个类型进行编辑或删除")
+
+    return types_dict[selected_name] if st.session_state.selected_type_id else None

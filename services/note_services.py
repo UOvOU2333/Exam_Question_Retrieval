@@ -219,3 +219,70 @@ def permanently_delete_note_type(type_id):
     conn.close()
     
     return success
+
+
+def get_question_notes(question_id):
+    """
+    获取指定题目的所有备注（未删除的）
+    """
+    conn = get_conn()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    
+    cur.execute("""
+        SELECT qn.*, nt.type_name 
+        FROM question_notes qn
+        JOIN note_types nt ON qn.type_id = nt.id
+        WHERE qn.question_id = ? AND qn.is_deleted = 0
+        ORDER BY qn.created_at DESC
+    """, (question_id,))
+    
+    rows = cur.fetchall()
+    conn.close()
+    
+    return [dict(row) for row in rows]
+
+
+def create_question_note(question_id, type_id, content, created_by):
+    """
+    创建题目备注
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("""
+            INSERT INTO question_notes (question_id, type_id, content, created_by)
+            VALUES (?, ?, ?, ?)
+        """, (question_id, type_id, content, created_by))
+        
+        conn.commit()
+        note_id = cur.lastrowid
+        return note_id
+    except Exception as e:
+        print(f"创建备注失败: {e}")
+        return None
+    finally:
+        conn.close()
+
+
+def soft_delete_question_note(note_id, updated_by):
+    """
+    软删除题目备注
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("""
+            UPDATE question_notes 
+            SET is_deleted = 1, 
+                updated_by = ?,
+                updated_at = datetime('now','localtime')
+            WHERE note_id = ? AND is_deleted = 0
+        """, (updated_by, note_id))
+        
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()

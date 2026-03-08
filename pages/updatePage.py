@@ -53,13 +53,12 @@ def update():
         # =========================
         # Markdown 编辑 + 实时预览
         # =========================
+
+        rich_markdown(IMAGE_DIR, False, qid)
+
         col_edit, col_preview = st.columns(2)
 
         with col_edit:
-
-            rich_markdown(IMAGE_DIR)
-
-            st.divider()
 
             content = st.text_area(
                 "试题内容",

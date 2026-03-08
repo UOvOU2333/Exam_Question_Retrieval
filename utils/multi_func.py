@@ -3,8 +3,9 @@ import uuid
 import streamlit_antd_components as sac
 
 from utils.file_utils import save_uploaded_file_once
+from utils.note_utils import question_notes_component
 
-def rich_markdown(img_dir, is_upload_page = False):
+def rich_markdown(img_dir, is_upload_page = False, qid = None):
 
     col_rich, col_remark = st.columns([1,1])
 
@@ -15,7 +16,7 @@ def rich_markdown(img_dir, is_upload_page = False):
         with col_remark:
             remark_tools()
 
-    render_tool_panel(img_dir, is_upload_page)   # 动态工具面板
+    render_tool_panel(img_dir, is_upload_page, qid)   # 动态工具面板
 
 def rich_tools():
 
@@ -61,7 +62,7 @@ def remark_tools():
 
     if type_choice:
         _map = {
-            "📝 备注": "image"
+            "📝 备注": "remark"
         }
         st.session_state.active_remark_tool = _map.get(type_choice)
 
@@ -171,7 +172,7 @@ def formula_tool():
         st.success("公式 Markdown 已生成，点击右上角复制按钮复制：")
         st.code(md, language="markdown")
 
-def render_tool_panel(img_dir, is_upload_page = False):
+def render_tool_panel(img_dir, is_upload_page, qid=None):
     tool = st.session_state.active_tool
 
     if tool == "image":
@@ -186,7 +187,7 @@ def render_tool_panel(img_dir, is_upload_page = False):
     if not is_upload_page:
         tool_remark = st.session_state.active_remark_tool
         if tool_remark == "remark":
-            remark_tool()
+            question_notes_component(qid)
 
 def img_upload(img_dir):
     # =========================
@@ -212,6 +213,3 @@ def img_upload(img_dir):
         st.success("图片上传成功")
         st.markdown("⬇️ **复制下面这行，粘贴到任意 Markdown 编辑区即可使用：**")
         st.code(f"![图片说明]({img_url})")
-
-def remark_tool():
-    return

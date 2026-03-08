@@ -3,6 +3,7 @@ import streamlit_antd_components as sac
 
 from utils.auth_utils import require_login
 from utils.render_utils import render_markdown
+from utils.note_utils import display_notes_list
 from services.question_services import search_questions
 
 
@@ -183,6 +184,8 @@ def search():
 
             if caption_parts:
                 st.caption(" | ".join(caption_parts))
+
+            display_notes_list(qid)
 
             if st.button("更新试题", key=f"update_btn_{qid}"):
                 st.session_state["update_qid"] = qid
