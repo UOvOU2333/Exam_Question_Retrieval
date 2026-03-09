@@ -417,11 +417,14 @@ def compact_note_type_selector():
     all_types = get_all_note_types()
     types_dict = {t['type_name']: t['id'] for t in all_types} if all_types else {}
     
+    st.subheader("选择备注类型")
+
     if types_dict:
         selected_name = st.selectbox(
             "选择类型",
             options=list(types_dict.keys()),
-            key="type_selector"
+            key="type_selector",
+            label_visibility="collapsed"
         )
         if selected_name:
             st.session_state.selected_type_id = types_dict[selected_name]
@@ -439,7 +442,7 @@ def compact_note_type_selector():
                         st.error("名称已存在")
     
     if st.session_state.selected_type_id:
-        with st.expander("快速操作"):
+        with st.expander("类型快速操作"):
 
             with st.form("quick_add", clear_on_submit=True):
                 new_name = st.text_input("新增类型", placeholder="输入新增类型名称", label_visibility="collapsed")
