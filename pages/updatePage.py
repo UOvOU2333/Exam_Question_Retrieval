@@ -4,7 +4,7 @@ import streamlit as st
 from utils.auth_utils import require_role
 from utils.render_utils import render_markdown
 from utils.multi_func import rich_markdown
-from services.question_services import update_question, search_qid, move_to_recycle_bin
+from services.question_services import update_question, get_question_by_id, move_to_recycle_bin
 
 # =========================
 # 图片存储配置
@@ -30,7 +30,7 @@ def update():
     with col_qid:
         qid = st.number_input(value=qid,min_value=0, label="被修改题目编号")
 
-    qInfo = search_qid(qid)
+    qInfo = get_question_by_id(qid)
 
     if qid == None:
         st.error("请输入更新题目ID")
@@ -38,7 +38,10 @@ def update():
         if not qInfo:
             st.error("题目不存在")
         else:
-            st.success(f"当前更新题目ID: {qid}")
+            if qInfo["isInRecycleBin"]:
+                st.warning(f"当前更新题目ID: {qid} 已在回收站中")
+            else:
+                st.success(f"当前更新题目ID: {qid}")
 
             ori_content = qInfo["content"]
             ori_answer = qInfo["answer"]
