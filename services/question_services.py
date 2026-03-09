@@ -33,8 +33,8 @@ def search_questions(
     question_no: str | None = None,
     keyword: str | None = None,
     years: list | None = None,
-    field_que: list | None = None,
-    field_sou: list | None = None,
+    field_que: str = "all",
+    field_sou: str = "all",
     search_scope: str = "qa",   # "qa" 或 "source"
     fuzzy: bool = True
 ):
@@ -80,17 +80,17 @@ def search_questions(
 
         if search_scope == "qa":
             # 仅搜索题目/答案/解析
-            if not field_que:
+            if field_que == "all":
                 fields = ["content", "answer", "analysis"]
             else:
-                fields = field_que
+                fields = [field_que]
 
         elif search_scope == "source":
             # 仅搜索来源
-            if not field_sou:
+            if field_sou == "all":
                 fields = ["source", "analysis_source"]
             else:
-                fields = field_sou
+                fields = [field_sou]
         else:
             fields = []
 

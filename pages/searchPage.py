@@ -27,9 +27,8 @@ def search():
     if show_choice != "隐藏":
 
         with col_tag:
-            # flag_type = st.toggle("卷种精确")
-            # flag_no = st.toggle("题号精确")
-            pass
+            flag_type = st.toggle("卷种精确")
+            flag_no = st.toggle("题号精确")
         # =========================
         # 检索输入区
         # =========================
@@ -56,12 +55,14 @@ def search():
             )
 
         options_que = [
+            ("全部字段", "all"),
             ("题目内容", "content"),
             ("答案", "answer"),
             ("解析", "analysis"),
         ]
 
         options_sou = [
+            ("全部字段", "all"),
             ("题目来源", "source"),
             ("解析来源", "analysis_source"),
         ]
@@ -78,36 +79,30 @@ def search():
 
         with col_op:
             if search_scope == "题目/答案/解析":
-                selected_labels = st.multiselect(
-                    "选择字段",
-                    options=[o[0] for o in options_que],
-                    default=None,
-                    placeholder="默认搜索全部",
-                    key="multi_fields_que"
+                selected_index_que = sac.segmented(
+                    items=[sac.SegmentedItem(label=o[0]) for o in options_que],
+                    align="start",
+                    size="md",
+                    return_index=True,
+                    key="segmented_que",
+                    use_container_width=True
                 )
-
-                field_que = [v for (label, v) in options_que if label in selected_labels]
-        
-                field_sou = None
+                field_que = options_que[selected_index_que][1]
+                field_sou = "all"
 
             else:
-                selected_labels = st.multiselect(
-                    "选择字段",
-                    options=[o[0] for o in options_sou],
-                    default=None,
-                    placeholder="默认搜索全部",
-                    key="multi_fields_sou"
+                selected_index_sou = sac.segmented(
+                    items=[sac.SegmentedItem(label=o[0]) for o in options_sou],
+                    align="start",
+                    size="md",
+                    return_index=True,
+                    key="segmented_sou",
+                    use_container_width=True
                 )
+                field_sou = options_sou[selected_index_sou][1]
+                field_que = "all"
 
-                field_sou = [v for (label, v) in options_sou if label in selected_labels]
-
-                field_que = None
-
-        keyword = st.text_input(
-            "关键词检索",
-            placeholder="请输入关键词"
-        )
-        # if show_choice == "高级":
+        # if show_choice == "高级搜索":
 
     else:
         years = []
@@ -117,10 +112,10 @@ def search():
         field_sou = "all"
         search_scope = "题目/答案/解析"
 
-        keyword = st.text_input(
-            "关键词检索",
-            placeholder="请输入关键词"
-        )
+    keyword = st.text_input(
+        "🔍 综合关键词",
+        placeholder="请输入关键词"
+    )
 
     if not paper_type.strip() and not question_no.strip() and not keyword.strip() and not years:
         st.info("请输入搜索条件开始检索")
