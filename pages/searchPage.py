@@ -26,9 +26,9 @@ def search():
 
     if show_choice != "隐藏":
 
-        with col_tag:
-            flag_type = st.toggle("卷种精确")
-            flag_no = st.toggle("题号精确")
+        # with col_tag:
+        #     flag_type = st.toggle("卷种精确")
+        #     flag_no = st.toggle("题号精确")
         # =========================
         # 检索输入区
         # =========================
@@ -78,6 +78,7 @@ def search():
             )
 
         with col_op:
+            st.space()
             if search_scope == "题目/答案/解析":
                 selected_index_que = sac.segmented(
                     items=[sac.SegmentedItem(label=o[0]) for o in options_que],
@@ -102,7 +103,7 @@ def search():
                 field_sou = options_sou[selected_index_sou][1]
                 field_que = "all"
 
-        # if show_choice == "高级搜索":
+        # if show_choice == "高级":
 
     else:
         years = []
@@ -113,7 +114,7 @@ def search():
         search_scope = "题目/答案/解析"
 
     keyword = st.text_input(
-        "🔍 综合关键词",
+        "关键词检索",
         placeholder="请输入关键词"
     )
 
