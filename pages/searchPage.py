@@ -4,7 +4,7 @@ import streamlit_antd_components as sac
 from utils.auth_utils import require_login
 from utils.render_utils import render_markdown
 from utils.note_utils import display_notes_list
-from services.question_services import search_questions
+from services.question_services import search_questions, get_question_by_id
 
 
 def search():
@@ -147,7 +147,8 @@ def search():
 
     st.success(f"共找到 {len(results)} 条结果")
 
-    for q in results:
+    for i in results:
+        q = get_question_by_id(i)
         qid = q["questionID"]
         content = q["content"]
         answer = q["answer"]
