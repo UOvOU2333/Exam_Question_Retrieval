@@ -92,7 +92,6 @@ def add_note_component(question_id, selected_type_id):
                         st.error("添加失败")
     
 
-
 def display_notes_list(question_id):
     """
     显示题目的备注列表

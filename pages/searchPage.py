@@ -1,7 +1,7 @@
 import streamlit as st
 import streamlit_antd_components as sac
 
-from utils.auth_utils import require_login
+from utils.auth_utils import require_login, check_role
 from utils.render_utils import render_markdown
 from utils.note_utils import display_notes_list
 from services.question_services import search_questions, get_question_by_id
@@ -189,7 +189,8 @@ def search():
 
             display_notes_list(qid)
 
-            if st.button("更新试题", key=f"update_btn_{qid}"):
-                st.session_state["update_qid"] = qid
-                st.switch_page("pages/managingPage.py")
+            if check_role("admin", "editor"):
+                if st.button("更新试题", key=f"update_btn_{qid}"):
+                    st.session_state["update_qid"] = qid
+                    st.switch_page("pages/managingPage.py")
             
