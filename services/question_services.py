@@ -118,7 +118,14 @@ def search_questions(
     cur.execute(sql, tuple(params))
     rows = cur.fetchall()
     conn.close()
-    return rows
+
+    # 将题目以questionID列表的形式顺序返回，便于排序
+    result = []
+
+    for i in rows:
+        result.append(i["questionID"])
+
+    return result
 
 
 def get_question_by_id(qid):
