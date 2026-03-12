@@ -103,8 +103,6 @@ def search():
                 field_sou = options_sou[selected_index_sou][1]
                 field_que = "all"
 
-        # if show_choice == "高级":
-
     else:
         years = []
         paper_type = ""
