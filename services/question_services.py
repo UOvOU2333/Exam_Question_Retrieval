@@ -219,9 +219,9 @@ def delete_question(qid):
 # =====================
 # 根据备注信息检索题目
 # =====================
-def search_by_note(tag: str | None = None,
+def search_by_note(type_id: int | None = None,
                    content: str | None = None,
-                   author: str | None = None,
+                   created_by: str | None = None,
                    fuzzy: bool = True):
     """
     根据备注信息检索题目
@@ -235,7 +235,7 @@ def search_by_note(tag: str | None = None,
     base_sql = """
         SELECT DISTINCT q.questionID
         FROM questions q
-        JOIN notes n ON q.questionID = n.questionID
+        JOIN question_notes n ON q.questionID = n.question_id
         WHERE q.isInRecycleBin = 0
     """
 
@@ -243,13 +243,10 @@ def search_by_note(tag: str | None = None,
     params = []
 
     # 标签搜索
-    if tag and tag.strip():
-        if fuzzy:
-            conditions.append("n.tag LIKE ?")
-            params.append(f"%{tag}%")
-        else:
-            conditions.append("n.tag = ?")
-            params.append(tag)
+    if type_id:
+    # if type_id and type_id.strip():
+        conditions.append("n.type_id = ?")
+        params.append(type_id)
 
     # 内容搜索
     if content and content.strip():
@@ -261,13 +258,13 @@ def search_by_note(tag: str | None = None,
             params.append(content)
 
     # 备注人搜索
-    if author and author.strip():
+    if created_by and created_by.strip():
         if fuzzy:
-            conditions.append("n.author LIKE ?")
-            params.append(f"%{author}%")
+            conditions.append("n.created_by LIKE ?")
+            params.append(f"%{created_by}%")
         else:
-            conditions.append("n.author = ?")
-            params.append(author)
+            conditions.append("n.created_by = ?")
+            params.append(created_by)
 
     if conditions:
         sql = base_sql + " AND " + " AND ".join(conditions) + " ORDER BY n.created_at DESC"
