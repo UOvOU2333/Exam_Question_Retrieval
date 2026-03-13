@@ -214,3 +214,69 @@ def delete_question(qid):
     conn.close()
 
     return qid
+
+
+# =====================
+# 根据备注信息检索题目
+# =====================
+def search_by_note(type_id: int | None = None,
+                   content: str | None = None,
+                   created_by: str | None = None,
+                   fuzzy: bool = True):
+    """
+    根据备注信息检索题目
+    支持按标签、内容、备注人搜索，可模糊匹配
+    返回满足条件的 questionID 列表
+    """
+    conn = get_conn()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    base_sql = """
+        SELECT DISTINCT q.questionID
+        FROM questions q
+        JOIN question_notes n ON q.questionID = n.question_id
+        WHERE q.isInRecycleBin = 0
+    """
+
+    conditions = []
+    params = []
+
+    # 标签搜索
+    if type_id:
+    # if type_id and type_id.strip():
+        conditions.append("n.type_id = ?")
+        params.append(type_id)
+
+    # 内容搜索
+    if content and content.strip():
+        if fuzzy:
+            conditions.append("n.content LIKE ?")
+            params.append(f"%{content}%")
+        else:
+            conditions.append("n.content = ?")
+            params.append(content)
+
+    # 备注人搜索
+    if created_by and created_by.strip():
+        if fuzzy:
+            conditions.append("n.created_by LIKE ?")
+            params.append(f"%{created_by}%")
+        else:
+            conditions.append("n.created_by = ?")
+            params.append(created_by)
+
+    if conditions:
+        sql = base_sql + " AND " + " AND ".join(conditions) + " ORDER BY n.created_at DESC"
+    else:
+        # 若无任何条件，返回空列表
+        conn.close()
+        return []
+
+    cur.execute(sql, tuple(params))
+    rows = cur.fetchall()
+    conn.close()
+
+    # 提取 questionID 列表
+    result = [row["questionID"] for row in rows]
+    return result
