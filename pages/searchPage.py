@@ -145,9 +145,6 @@ def search():
         field_que = "all"
         field_sou = "all"
         search_scope = "题目/答案/解析"
-        type_id = None
-        note_content = ""
-        note_creator = ""
 
     keyword = st.text_input(
         "关键词检索",
@@ -185,8 +182,12 @@ def search():
         )
     
     # 取交集
-    if note_results:
-        results = list(set(base_results) & set(note_results))
+    if show_choice == "高级":
+        # results = list(set(base_results) & set(note_results))
+        results = []
+        for i in note_results:
+            if i in base_results:
+                results.append(i)
     else:
         results = base_results
 
