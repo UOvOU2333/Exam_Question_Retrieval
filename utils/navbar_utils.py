@@ -6,6 +6,9 @@ import streamlit as st
 
 def navbar(pageName):
 
+    st.image("static/images/logo/V1.0.png", width='content')
+    st.space()
+
     with st.expander("页面导航栏"):
         col_nav1, col_nav2 = st.columns(2)
         with col_nav1:
