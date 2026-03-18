@@ -175,14 +175,14 @@ def search():
     if show_choice == "高级":
     # if type_id or note_content or note_creator:
         note_results = search_by_note(
-            type_id=type_id,
+            type_id=type_id or None,
             content=note_content.strip() or None,
             created_by=note_creator.strip() or None,
             fuzzy=True
         )
     
     # 取交集
-    if show_choice == "高级":
+    if show_choice == "高级" and type_id is not None and note_content is not None and note_creator is not None:
         # results = list(set(base_results) & set(note_results))
         results = []
         for i in note_results:
