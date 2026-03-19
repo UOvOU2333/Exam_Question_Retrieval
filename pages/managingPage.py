@@ -37,13 +37,13 @@ def main():
         login()
 
     elif selected == '试题上传':
-        if st.session_state.get("role") != "admin":
+        if st.session_state.get("role") not in ("admin", "editor"):
             st.error("无权限访问")
         else:
             upload()
     
     elif selected == '试题更新':
-        if st.session_state.get("role") != "admin":
+        if st.session_state.get("role") not in ("admin", "editor"):
             st.error("无权限访问")
         else:
             update()
