@@ -15,7 +15,7 @@ os.makedirs(IMAGE_DIR, exist_ok=True)
 
 def upload():
     # ===== 权限校验 =====
-    require_role("admin", "editor")
+    require_role("editor", "admin")
 
     st.title("试题上传")
 
