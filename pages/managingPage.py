@@ -2,7 +2,6 @@ import streamlit as st
 import streamlit_antd_components as sac
 
 from pages.authPage import login
-from pages.recycleBinPage import recycle_bin
 from pages.uploadPage import upload
 from pages.updatePage import update
 from pages.userManagePage import user_manage
@@ -24,12 +23,11 @@ def main():
         st.title("题库系统")
         selected = sac.menu(
             items=[
-                sac.MenuItem('试题更新', icon='pencil'),
+                sac.MenuItem('试题更新', icon='recycle'),
                 sac.MenuItem('试题上传', icon='upload'),
                 sac.MenuItem('备注管理', icon='tags'),
                 sac.MenuItem('用户管理', icon='people'),
                 sac.MenuItem('用户中心', icon='person'),
-                sac.MenuItem('回收站', icon='recycle'),
         ],
             open_all=True
         )
@@ -61,12 +59,6 @@ def main():
             st.error("无权限访问")
         else:
             note_type_management()
-
-    elif selected == '回收站':
-        if st.session_state.get("role") not in ("admin", "editor"):
-            st.error("无权限访问")
-        else:
-            recycle_bin()
 
 
 if __name__ == "__main__":
