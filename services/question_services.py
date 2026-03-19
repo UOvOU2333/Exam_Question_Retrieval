@@ -200,6 +200,23 @@ def move_to_recycle_bin(qid):
 
 
 # =====================
+# 删除单题(彻底删除）
+# =====================
+def delete_question(qid):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+    DELETE FROM questions WHERE questionID = ?
+    """, (qid,))
+
+    conn.commit()
+    conn.close()
+
+    return qid
+
+
+# =====================
 # 根据备注信息检索题目
 # =====================
 def search_by_note(type_id: int | None = None,
