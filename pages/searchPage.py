@@ -109,7 +109,7 @@ def search():
             
             # 获取所有标签（笔记类型）
             note_types = get_all_note_types()
-            note_type_options = {"": None}
+            note_type_options = {"全部标签": None}
             for note_type in note_types:
                 note_type_options[note_type['type_name']] = note_type['id']
             
