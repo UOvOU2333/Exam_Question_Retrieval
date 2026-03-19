@@ -4,7 +4,8 @@ import streamlit_antd_components as sac
 from utils.auth_utils import require_login, check_role
 from utils.render_utils import render_markdown
 from utils.note_utils import display_notes_list
-from services.question_services import search_questions, get_question_by_id
+from services.question_services import search_questions, get_question_by_id, search_by_note
+from services.note_services import get_all_note_types
 
 
 def search():
@@ -103,7 +104,39 @@ def search():
                 field_sou = options_sou[selected_index_sou][1]
                 field_que = "all"
 
-        # if show_choice == "高级":
+        if show_choice == "高级":
+            st.subheader("📝 备注检索")
+            
+            # 获取所有标签（笔记类型）
+            note_types = get_all_note_types()
+            note_type_options = {"": None}
+            for note_type in note_types:
+                note_type_options[note_type['type_name']] = note_type['id']
+            
+            col_tag, col_content, col_creator = st.columns(3)
+            
+            with col_tag:
+                selected_tag = st.selectbox(
+                    "标签",
+                    options=list(note_type_options.keys()),
+                    placeholder="选择标签",
+                    key="note_tag"
+                )
+                type_id = note_type_options.get(selected_tag)
+            
+            with col_content:
+                note_content = st.text_input(
+                    "备注内容",
+                    placeholder="输入备注内容关键词",
+                    key="note_content"
+                )
+            
+            with col_creator:
+                note_creator = st.text_input(
+                    "备注人",
+                    placeholder="输入备注人关键词",
+                    key="note_creator"
+                )
 
     else:
         years = []
@@ -125,7 +158,8 @@ def search():
     # =========================
     # 执行检索
     # =========================
-    results = search_questions(
+    # 基础检索
+    base_results = search_questions(
         paper_type=paper_type.strip() or None,
         question_no=question_no.strip() or None,
         keyword=keyword.strip() or None,
@@ -135,6 +169,27 @@ def search():
         search_scope="qa" if search_scope == "题目/答案/解析" else "source",
         fuzzy=True
     )
+    
+    # 备注检索（如果有备注检索条件）
+    note_results = []
+    if show_choice == "高级":
+    # if type_id or note_content or note_creator:
+        note_results = search_by_note(
+            type_id=type_id or None,
+            content=note_content.strip() or None,
+            created_by=note_creator.strip() or None,
+            fuzzy=True
+        )
+    
+    # 取交集
+    if show_choice == "高级" and type_id is not None and note_content is not None and note_creator is not None:
+        # results = list(set(base_results) & set(note_results))
+        results = []
+        for i in note_results:
+            if i in base_results:
+                results.append(i)
+    else:
+        results = base_results
 
     st.divider()
 
