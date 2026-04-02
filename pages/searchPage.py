@@ -214,7 +214,17 @@ def search():
         paper_type = q["paper_type"]
         question_no = q["question_no"]
 
-        with st.expander(f"📘 题目 #{qid}", expanded=False):
+        tip_parts = []
+        if year:
+            tip_parts.append(f"年份：{year}")
+        if paper_type:
+            tip_parts.append(f"卷种：{paper_type}")
+        if source:
+            tip_parts.append(f"来源：{source}")
+        if question_no:
+            tip_parts.append(f"题号：{question_no}")
+
+        with st.expander(f"📘 题目 #{qid}" + " | " + " | ".join(tip_parts), expanded=False):
 
             st.markdown("### 题目内容")
             render_markdown(content)
