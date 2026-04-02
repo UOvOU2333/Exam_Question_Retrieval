@@ -48,7 +48,7 @@ def upload():
             placeholder="请输入解析（支持 Markdown / LaTeX）"
         )
 
-        year = st.number_input("年份", min_value=1980, max_value=2050, step=10)
+        year = st.number_input("年份", min_value=1949, max_value=2050, step=10, value=2000)
         paper_type = st.text_input("卷种",
             placeholder="XX卷")
         question_no = st.text_input("题号")

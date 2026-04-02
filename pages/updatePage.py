@@ -81,7 +81,7 @@ def update():
                 value=ori_analysis
             )
 
-            year = st.number_input("年份", min_value=1980, max_value=2050, step=10, value=ori_year)
+            year = st.number_input("年份", min_value=1949, max_value=2050, step=1, value=ori_year)
             paper_type = st.text_input("卷种",
                 value=ori_paper_type)
             question_no = st.text_input("题号", value=ori_question_no)
