@@ -5,6 +5,7 @@ import streamlit_antd_components as sac
 from utils.file_utils import save_uploaded_file_once
 from utils.note_utils import question_notes_component
 
+
 def rich_markdown(img_dir, is_upload_page = False, qid = None):
 
     col_rich, col_remark = st.columns([1,1])
@@ -17,6 +18,7 @@ def rich_markdown(img_dir, is_upload_page = False, qid = None):
             remark_tools()
 
     render_tool_panel(img_dir, is_upload_page, qid)   # 动态工具面板
+
 
 def rich_tools():
 
@@ -44,6 +46,7 @@ def rich_tools():
         }
         st.session_state.active_tool = _map.get(type_choice)
 
+
 def remark_tools():
 
     if "active_tool" not in st.session_state:
@@ -66,6 +69,7 @@ def remark_tools():
         }
         st.session_state.active_remark_tool = _map.get(type_choice)
 
+
 def image_tool(img_dir):
     st.subheader("📷 插入图片")
 
@@ -79,6 +83,7 @@ def image_tool(img_dir):
         md = f"![图片说明]({img_url})"
         st.success("图片已生成，点击右上角复制按钮复制到剪贴板：")
         st.code(md, language="markdown")
+
 
 def table_tool():
     col_title_table, col_choice_table = st.columns([2,3])
@@ -162,6 +167,7 @@ def table_tool():
             st.success("Markdown 表格已生成，点击右上角复制按钮复制：")
             st.code(md, language="markdown")
 
+
 def formula_tool():
     st.subheader("∑ 插入公式")
 
@@ -171,6 +177,7 @@ def formula_tool():
         md = f"$$\n{latex}\n$$"
         st.success("公式 Markdown 已生成，点击右上角复制按钮复制：")
         st.code(md, language="markdown")
+
 
 def render_tool_panel(img_dir, is_upload_page, qid=None):
     tool = st.session_state.active_tool
@@ -188,6 +195,7 @@ def render_tool_panel(img_dir, is_upload_page, qid=None):
         tool_remark = st.session_state.active_remark_tool
         if tool_remark == "remark":
             question_notes_component(qid)
+
 
 def img_upload(img_dir):
     # =========================
