@@ -219,8 +219,6 @@ def search():
             tip_parts.append(f"年份：{year}")
         if paper_type:
             tip_parts.append(f"卷种：{paper_type}")
-        if source:
-            tip_parts.append(f"来源：{source}")
         if question_no:
             tip_parts.append(f"题号：{question_no}")
 
