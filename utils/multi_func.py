@@ -81,7 +81,7 @@ def image_tool(img_dir):
     if uploaded_img:
         img_url = save_uploaded_file_once(uploaded_img, img_dir)
         md = f"![图片说明]({img_url})"
-        st.success("图片已生成，点击右上角复制按钮复制到剪贴板：")
+        st.success("图片已生成，复制下面的 Markdown 代码，粘贴到任意 Markdown 编辑区即可使用：")
         st.code(md, language="markdown")
 
 
@@ -94,7 +94,7 @@ def table_tool():
     with col_choice_table:
         mode = st.radio(
             "生成方式",
-            ["粘贴文本生成","手动指定行列"],
+            ["粘贴文本生成", "手动指定行列"],
             horizontal=True
         )
 
@@ -117,7 +117,7 @@ def table_tool():
             ])
 
             md = f"{header}\n{split}\n{body}"
-            st.success("表格 Markdown 已生成，点击右上角复制按钮复制：")
+            st.success("表格 Markdown 已生成，复制下面的 Markdown 代码，粘贴到任意 Markdown 编辑区即可使用：")
             st.code(md, language="markdown")
 
     # =========================
@@ -164,7 +164,7 @@ def table_tool():
 
             md = f"{header}\n{split}\n{body}" if len(rows) > 1 else f"{header}\n{split}"
 
-            st.success("Markdown 表格已生成，点击右上角复制按钮复制：")
+            st.success("Markdown 表格已生成，复制下面的 Markdown 代码，粘贴到任意 Markdown 编辑区即可使用：")
             st.code(md, language="markdown")
 
 
@@ -175,7 +175,7 @@ def formula_tool():
 
     if st.button("生成公式 Markdown"):
         md = f"$$\n{latex}\n$$"
-        st.success("公式 Markdown 已生成，点击右上角复制按钮复制：")
+        st.success("公式 Markdown 已生成，复制下面的 Markdown 代码，粘贴到任意 Markdown 编辑区即可使用：")
         st.code(md, language="markdown")
 
 
@@ -218,6 +218,5 @@ def img_upload(img_dir):
 
         img_url = save_uploaded_file_once(uploaded_img, img_dir)
 
-        st.success("图片上传成功")
-        st.markdown("⬇️ **复制下面这行，粘贴到任意 Markdown 编辑区即可使用：**")
+        st.success("图片上传成功，复制下面的 Markdown 代码，粘贴到任意 Markdown 编辑区即可使用：")
         st.code(f"![图片说明]({img_url})")

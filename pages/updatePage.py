@@ -43,14 +43,14 @@ def update():
             else:
                 st.success(f"当前更新题目ID: {qid}")
 
-            st.session_state["update_content"] = qInfo["content"]
-            st.session_state["update_answer"] = qInfo["answer"]
-            st.session_state["update_analysis"] = qInfo["analysis"]
-            st.session_state["update_source"] = qInfo["source"]
-            st.session_state["update_analysis_source"] = qInfo["analysis_source"]
-            st.session_state["update_year"] = qInfo["year"]
-            st.session_state["update_paper_type"] = qInfo["paper_type"]
-            st.session_state["update_question_no"] = qInfo["question_no"]
+            ori_content = qInfo["content"]
+            ori_answer = qInfo["answer"]
+            ori_analysis = qInfo["analysis"]
+            ori_source = qInfo["source"]
+            ori_analysis_source = qInfo["analysis_source"]
+            ori_year = qInfo["year"]
+            ori_paper_type = qInfo["paper_type"]
+            ori_question_no = qInfo["question_no"]
 
     if qid != None and qInfo:
         # =========================
@@ -65,29 +65,29 @@ def update():
 
             content = st.text_area(
                 "试题内容",
+                value=ori_content,
                 height=220,
-                key="update_content",
             )
 
             answer = st.text_area(
                 "答案",
                 height=120,
-                key="update_answer"
+                value=ori_answer
             )
 
             analysis = st.text_area(
                 "解析",
                 height=180,
-                key="update_analysis"
+                value=ori_analysis
             )
 
-            year = st.number_input("年份", min_value=1949, max_value=2050, step=1, key="update_year")
+            year = st.number_input("年份", min_value=1949, max_value=2050, step=1, value=ori_year)
             paper_type = st.text_input("卷种",
-                key="update_paper_type")
-            question_no = st.text_input("题号", key="update_question_no")
+                value=ori_paper_type)
+            question_no = st.text_input("题号", value=ori_question_no)
 
-            source = st.text_input("题目来源", key="update_source")
-            analysis_source = st.text_input("解析来源", key="update_analysis_source")
+            source = st.text_input("题目来源", value=ori_source)
+            analysis_source = st.text_input("解析来源", value=ori_analysis_source)
 
         with col_preview:
             st.subheader("👀 实时预览")
