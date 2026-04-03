@@ -39,7 +39,7 @@ def search():
         with col_year:
             years = st.multiselect(
                 "年份",
-                options=list(range(2000, 2031)),
+                options=list(range(1949, 2050)),
                 placeholder="可多选"
             )
 
