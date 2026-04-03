@@ -94,7 +94,7 @@ def table_tool():
     with col_choice_table:
         mode = st.radio(
             "生成方式",
-            ["手动指定行列", "粘贴文本生成"],
+            ["粘贴文本生成","手动指定行列"],
             horizontal=True
         )
 
