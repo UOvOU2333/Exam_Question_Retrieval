@@ -20,4 +20,4 @@ def navbar(pageName):
 
 def info_update():
     if st.session_state.get("update_qid"):
-        st.info("更新题目需手动切换至更新页")
+        st.info(f"上次成功提交/选择更新的试题 ID 是：{st.session_state['update_qid']}，如需添加备注可直接前往更新页。")

@@ -24,7 +24,11 @@ def upload():
     # =========================
     # Markdown 编辑 + 实时预览
     # =========================
-    rich_markdown(IMAGE_DIR, True)
+    rich_markdown(IMAGE_DIR, True, None)
+
+    key_suffix = st.session_state.get("form_version", 0)
+    if st.session_state.get(f"upload_year_{key_suffix}", 0) == 0:
+        st.session_state[f"upload_year_{key_suffix}"] = 2020
 
     col_edit, col_preview = st.columns(2)
     
@@ -33,28 +37,31 @@ def upload():
         content = st.text_area(
             "试题内容",
             height=220,
-            placeholder="请输入题目正文（支持 Markdown / LaTeX / 图片）"
+            placeholder="请输入题目正文（支持 Markdown / LaTeX / 图片）",
+            key=f"upload_content_{key_suffix}"
         )
 
         answer = st.text_area(
             "答案",
             height=120,
-            placeholder="请输入答案（支持 Markdown / LaTeX）"
+            placeholder="请输入答案（支持 Markdown / LaTeX）",
+            key=f"upload_answer_{key_suffix}"
         )
 
         analysis = st.text_area(
             "解析",
             height=180,
-            placeholder="请输入解析（支持 Markdown / LaTeX）"
+            placeholder="请输入解析（支持 Markdown / LaTeX）",
+            key=f"upload_analysis_{key_suffix}"
         )
 
-        year = st.number_input("年份", min_value=1949, max_value=2050, step=10, value=2000)
+        year = st.number_input("年份", min_value=1949, max_value=2050, step=10, key=f"upload_year_{key_suffix}")
         paper_type = st.text_input("卷种",
-            placeholder="XX卷")
-        question_no = st.text_input("题号")
+            placeholder="XX卷", key=f"upload_paper_type_{key_suffix}")
+        question_no = st.text_input("题号", key=f"upload_question_no_{key_suffix}")
 
-        source = st.text_input("题目来源")
-        analysis_source = st.text_input("解析来源")
+        source = st.text_input("题目来源", key=f"upload_source_{key_suffix}")
+        analysis_source = st.text_input("解析来源", key=f"upload_analysis_source_{key_suffix}")
 
     with col_preview:
         st.subheader("👀 实时预览")
@@ -96,4 +103,16 @@ def upload():
         )
 
         st.session_state["update_qid"] = qid
-        st.success(f"🎉 试题上传成功，ID：{qid}，如需添加备注可直接前往更新页。")
+
+        st.session_state["form_version"] = key_suffix + 1
+        
+        st.session_state[f"upload_content_{key_suffix + 1}"] = ""
+        st.session_state[f"upload_answer_{key_suffix + 1}"] = ""
+        st.session_state[f"upload_analysis_{key_suffix + 1}"] = ""
+        st.session_state[f"upload_source_{key_suffix + 1}"] = source
+        st.session_state[f"upload_analysis_source_{key_suffix + 1}"] = analysis_source
+        st.session_state[f"upload_year_{key_suffix + 1}"] = year
+        st.session_state[f"upload_paper_type_{key_suffix + 1}"] = paper_type
+        st.session_state[f"upload_question_no_{key_suffix + 1}"] = question_no
+
+        st.rerun()
