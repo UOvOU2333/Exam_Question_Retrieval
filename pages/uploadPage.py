@@ -1,4 +1,5 @@
 import os
+import re
 import streamlit as st
 
 from utils.auth_utils import require_role
@@ -12,6 +13,14 @@ from services.question_services import create_question
 IMAGE_DIR = "static/images/questions"
 os.makedirs(IMAGE_DIR, exist_ok=True)
 
+def increment_number_in_string(s):
+    """将字符串中的数字部分 +1，如果没有数字则返回原字符串"""
+    match = re.search(r'\d+', s)
+    if match:
+        num_str = match.group()
+        new_num = str(int(num_str) + 1)
+        return s.replace(num_str, new_num, 1)  # 只替换第一个数字
+    return s
 
 def upload():
     # ===== 权限校验 =====
@@ -113,6 +122,6 @@ def upload():
         st.session_state[f"upload_analysis_source_{key_suffix + 1}"] = analysis_source
         st.session_state[f"upload_year_{key_suffix + 1}"] = year
         st.session_state[f"upload_paper_type_{key_suffix + 1}"] = paper_type
-        st.session_state[f"upload_question_no_{key_suffix + 1}"] = question_no
+        st.session_state[f"upload_question_no_{key_suffix + 1}"] = increment_number_in_string(question_no)
 
         st.rerun()
