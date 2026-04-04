@@ -36,7 +36,7 @@ def search_questions(
     field_que: str = "all",
     field_sou: str = "all",
     search_scope: str = "qa",   # "qa" 或 "source"
-    fuzzy: bool = True
+    no_fuzzy: bool = False
 ):
     conn = get_conn()
     conn.row_factory = sqlite3.Row
@@ -56,16 +56,18 @@ def search_questions(
 
     # 卷种
     if paper_type:
-        if fuzzy:
-            conditions.append("paper_type LIKE ?")
-            params.append(f"%{paper_type}%")
-        else:
-            conditions.append("paper_type = ?")
-            params.append(paper_type)
+        # if fuzzy:
+        #    conditions.append("paper_type LIKE ?")
+        #    params.append(f"%{paper_type}%")
+        # else:
+        #    conditions.append("paper_type = ?")
+        #    params.append(paper_type)
+        conditions.append("paper_type LIKE ?")
+        params.append(f"%{paper_type}%")
 
     # 题号
     if question_no:
-        if fuzzy:
+        if no_fuzzy:
             conditions.append("question_no LIKE ?")
             params.append(f"%{question_no}%")
         else:
@@ -74,7 +76,8 @@ def search_questions(
 
     # 综合关键词
     if keyword and keyword.strip():
-        kw = f"%{keyword}%" if fuzzy else keyword
+        # kw = f"%{keyword}%" if fuzzy else keyword
+        kw = f"%{keyword}%"
 
         keyword_conditions = []
 
@@ -95,10 +98,11 @@ def search_questions(
             fields = []
 
         for f in fields:
-            if fuzzy:
-                keyword_conditions.append(f"{f} LIKE ?")
-            else:
-                keyword_conditions.append(f"{f} = ?")
+            # if fuzzy:
+            #     keyword_conditions.append(f"{f} LIKE ?")
+            # else:
+            #     keyword_conditions.append(f"{f} = ?")
+            keyword_conditions.append(f"{f} LIKE ?")
             params.append(kw)
 
         if keyword_conditions:
