@@ -27,9 +27,9 @@ def search():
 
     if show_choice != "隐藏":
 
-        # with col_tag:
+        with col_tag:
         #     flag_type = st.toggle("卷种精确")
-        #     flag_no = st.toggle("题号精确")
+            flag_no = st.toggle("题号模糊")
         # =========================
         # 检索输入区
         # =========================
@@ -139,6 +139,7 @@ def search():
                 )
 
     else:
+        flag_no = False
         years = []
         paper_type = ""
         question_no = ""
@@ -167,7 +168,7 @@ def search():
         field_que=field_que,
         field_sou=field_sou,
         search_scope="qa" if search_scope == "题目/答案/解析" else "source",
-        fuzzy=True
+        no_fuzzy=flag_no
     )
     
     # 备注检索（如果有备注检索条件）
