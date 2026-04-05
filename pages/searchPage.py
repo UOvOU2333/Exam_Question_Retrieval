@@ -183,7 +183,7 @@ def search():
         )
     
     # 取交集
-    if show_choice == "高级" and type_id is not None and note_content is not None and note_creator is not None:
+    if show_choice == "高级" and ((type_id is not None) or (note_content is not None) or (note_creator is not None)):
         # results = list(set(base_results) & set(note_results))
         results = []
         for i in note_results:
