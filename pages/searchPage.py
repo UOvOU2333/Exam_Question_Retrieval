@@ -29,6 +29,7 @@ def search():
 
         with col_tag:
         #     flag_type = st.toggle("卷种精确")
+            flag_copy = st.toggle("复制模式")
             flag_no = st.toggle("题号模糊")
         # =========================
         # 检索输入区
@@ -139,6 +140,8 @@ def search():
                 )
 
     else:
+        with col_tag:
+            flag_copy = st.toggle("复制模式")
         flag_no = False
         years = []
         paper_type = ""
@@ -223,31 +226,53 @@ def search():
         if question_no:
             tip_parts.append(f"题号：{question_no}")
 
+        tip_parts_in_que = []
+        if year:
+            tip_parts_in_que.append(f"{year}")
+        if paper_type:
+            tip_parts_in_que.append(f"{paper_type}")
+        if question_no:
+            tip_parts_in_que.append(f" · T{question_no}")
+
+        tip_in_que = ""
+        if tip_parts_in_que:
+            tip_in_que = "".join(tip_parts_in_que)
+            tip_in_que = f"（{tip_in_que}）"
+
         with st.expander(f"📘 题目 #{qid}" + " | " + " | ".join(tip_parts), expanded=False):
 
-            st.markdown("### 题目内容")
-            render_markdown(content)
-
-            if answer:
-                st.markdown("### 答案")
-                render_markdown(answer)
-
-            if analysis:
-                st.markdown("### 解析")
-                render_markdown(analysis)
-
             caption_parts = []
-            if year:
-                caption_parts.append(f"📅 年份：{year}")
-            if paper_type:
-                caption_parts.append(f"📥 卷种：{paper_type}")
+
+            if flag_copy:
+                render_markdown(tip_in_que + content)
+                if answer:
+                    render_markdown("【答案】"+ answer)
+                if analysis:
+                    render_markdown("【解析】"+ analysis)
+
+            else:
+                st.markdown("### 题目内容")
+                render_markdown(content)
+
+                if answer:
+                    st.markdown("### 答案")
+                    render_markdown(answer)
+
+                if analysis:
+                    st.markdown("### 解析")
+                    render_markdown(analysis)
+
+                if year:
+                    caption_parts.append(f"📅 年份：{year}")
+                if paper_type:
+                    caption_parts.append(f"📥 卷种：{paper_type}")
+                if question_no:
+                    caption_parts.append(f"📑 题号：{question_no}")
+                    
             if source:
                 caption_parts.append(f"📌 来源：{source}")
-            if question_no:
-                caption_parts.append(f"📑 题号：{question_no}")
             if analysis_source:
                 caption_parts.append(f"🔍 解析来源：{analysis_source}")
-
             if caption_parts:
                 st.caption(" | ".join(caption_parts))
 
