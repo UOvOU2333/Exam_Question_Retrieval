@@ -244,7 +244,7 @@ def search():
             caption_parts = []
 
             if flag_copy:
-                render_markdown(tip_in_que + content)
+                render_markdown(content, tip_in_que)
                 if answer:
                     render_markdown("【答案】"+ answer)
                 if analysis:

@@ -5,7 +5,7 @@ import streamlit as st
 IMAGE_PATTERN = re.compile(r"!\[.*?\]\((.*?)\)")
 
 
-def render_markdown(text: str):
+def render_markdown(text: str, header: str | None = None):
     """
     Streamlit 友好的 Markdown 渲染：
     - 文本：st.markdown
@@ -13,6 +13,13 @@ def render_markdown(text: str):
     """
     if not text:
         return
+    
+    first_line = text.split("\n", 1)[0]
+    match_first = IMAGE_PATTERN.search(first_line)
+    if match_first and header:
+        st.write(header)
+    elif header:
+        text = header + text
 
     lines = text.split("\n")
 
