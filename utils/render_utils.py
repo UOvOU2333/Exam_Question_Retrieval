@@ -47,3 +47,25 @@ def render_markdown(text: str, header: str | None = None):
             buffer.append(line)
 
     flush_buffer()
+
+
+def is_markdown_table_start(lines):
+    """判断指定位置是否以标准 Markdown 表格开头"""
+    lines_list = lines.split("\n")
+
+    if len(lines_list) < 2:
+        return False
+
+    line1 = lines_list[0].strip()
+    line2 = lines_list[1].strip()
+
+    # 第一行必须包含至少两个 |
+    if line1.count("|") < 2:
+        return False
+
+    # 第二行必须是表格分隔符格式：|:?---+:?| 或 |---|
+    # 允许冒号在两端表示对齐方式
+    import re
+    table_separator_pattern = r'^\s*\|[\s\-:|]+\|\s*$'
+
+    return bool(re.match(table_separator_pattern, line2)) and "-" in line2
