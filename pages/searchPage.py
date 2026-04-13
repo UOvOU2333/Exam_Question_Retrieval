@@ -246,9 +246,9 @@ def search():
             if flag_copy:
                 render_markdown(content, tip_in_que)
                 if answer:
-                    render_markdown("【答案】"+ answer)
+                    render_markdown("【答案】" + "\n" + answer)
                 if analysis:
-                    render_markdown("【解析】"+ analysis)
+                    render_markdown("【解析】" + "\n" + analysis)
 
             else:
                 st.markdown("### 题目内容")
