@@ -15,8 +15,9 @@ def render_markdown(text: str, header: str | None = None):
         return
     
     first_line = text.split("\n", 1)[0]
-    match_first = IMAGE_PATTERN.search(first_line)
-    if match_first and header:
+    match_first_img = IMAGE_PATTERN.search(first_line)
+    match_table = is_markdown_table_start(text)
+    if (match_first_img or match_table) and header:
         st.write(header)
     elif header:
         text = header + text
