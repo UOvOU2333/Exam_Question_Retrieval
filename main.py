@@ -21,7 +21,7 @@ def main():
         selected = sac.menu(
             items=[
                 sac.MenuItem('试题检索', icon='database'),
-                sac.MenuItem('智能助手', icon='chat'),
+                # sac.MenuItem('智能助手', icon='chat'),
                 sac.MenuItem('用户中心', icon='person'),
             ],
             open_all=True
@@ -39,12 +39,12 @@ def main():
         else:
             search()
     
-    elif selected == '智能助手':
-        if not st.session_state.get("logged_in"):
-            st.warning("请先登录")
-            login()
-        else:
-            agent()
+    #elif selected == '智能助手':
+    #    if not st.session_state.get("logged_in"):
+    #        st.warning("请先登录")
+    #        login()
+    #    else:
+    #        agent()
     
     elif selected == '用户中心':
         login()
