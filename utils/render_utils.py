@@ -1,9 +1,18 @@
 import re
 import streamlit as st
+from PIL import Image
 
 
 IMAGE_PATTERN = re.compile(r"!\[.*?\]\((.*?)\)")
 
+def safe_render_image(img_path):
+    try:
+        img = Image.open(img_path)
+        st.image(img)
+    except FileNotFoundError:
+        st.warning(f"⚠️ 图片无法加载：{img_path}")
+    except Exception as e:
+        st.warning(f"⚠️ 图片加载出错：{e}")
 
 def render_markdown(text: str, header: str | None = None):
     """
@@ -40,10 +49,7 @@ def render_markdown(text: str, header: str | None = None):
             flush_buffer()
 
             img_path = match.group(1)
-            try:
-                st.image(img_path)
-            except Exception:
-                st.warning(f"⚠️ 图片无法加载：{img_path}")
+            safe_render_image(img_path)
         else:
             buffer.append(line)
 
