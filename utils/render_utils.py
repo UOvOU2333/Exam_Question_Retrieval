@@ -37,7 +37,14 @@ def render_markdown(text: str, header: str | None = None):
 
     def flush_buffer():
         if buffer:
-            md = "\n".join(buffer).replace("\n", "  \n")
+            processed_lines = []
+            for line in buffer:
+                # 1️⃣ 专门处理 ABCD 选项间的空格（新增）
+                line = replace_option_spaces(line)
+                # 2️⃣ 原有的连续空格替换（两个及以上空格转 &nbsp;）
+                line = re.sub(r' {2,}', lambda m: '&nbsp;' * len(m.group()), line)
+                processed_lines.append(line)
+            md = "\n".join(processed_lines).replace("\n", "  \n")
             st.markdown(md, unsafe_allow_html=True)
             buffer.clear()
 
@@ -76,3 +83,16 @@ def is_markdown_table_start(lines):
     table_separator_pattern = r'^\s*\|[\s\-:|]+\|\s*$'
 
     return bool(re.match(table_separator_pattern, line2)) and "-" in line2
+
+
+def replace_option_spaces(text: str) -> str:
+    """
+    将形如 "A.①② B.①④ C.②③ D.③④" 的选项中，
+    选项之间的连续空格（任意数量）替换为两个 &nbsp;。
+    仅处理大写字母 A-D 后跟点号及非空白内容的选项。
+    """
+    # 匹配选项及其后面的空格（最后一个选项后的空格不匹配）
+    # 模式：选项标记（如 A.①②） + 至少一个空格 + 后面紧跟另一个选项标记
+    pattern = r'([A-D]\.[^\s]+)(\s+)(?=[A-D]\.[^\s]+)'
+    # 将匹配到的空格部分替换为两个 &nbsp;，保留选项标记本身
+    return re.sub(pattern, lambda m: m.group(1) + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;', text)
