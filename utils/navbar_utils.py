@@ -4,10 +4,17 @@ import streamlit as st
 # 页面间跳转（顶端导航栏）
 # ==============================
 
-def navbar(pageName):
+@st.cache_resource
+def get_logo(logo_path="static/images/logo/V1.0.png"):
+    from PIL import Image
+    return Image.open(logo_path)
 
-    st.image("static/images/logo/V1.0.png", width='content')
-    st.space()
+def navbar(pageName):
+    try:
+        st.image(get_logo())
+    except Exception as e:
+        st.warning("Logo 加载中 ...")
+    st.write("")
 
     with st.expander("页面导航栏"):
         col_nav1, col_nav2 = st.columns(2)
