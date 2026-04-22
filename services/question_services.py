@@ -114,21 +114,19 @@ def search_questions(
         conditions.append(f"year IN ({placeholders})")
         params.extend(years)
 
+    # 构建最终 SQL
+    sql = base_sql
     if conditions:
-        sql = base_sql + " WHERE " + " AND ".join(conditions) + " ORDER BY created_at DESC"
-    else:
-        sql = base_sql + " ORDER BY created_at DESC"
+        sql += " WHERE " + " AND ".join(conditions)
+        
+    # 排序规则：年份降序，卷种升序，题号数值升序
+    sql += " ORDER BY year DESC, paper_type ASC, CAST(question_no AS INTEGER) ASC"
 
     cur.execute(sql, tuple(params))
     rows = cur.fetchall()
     conn.close()
 
-    # 将题目以questionID列表的形式顺序返回，便于排序
-    result = []
-
-    for i in rows:
-        result.append(i["questionID"])
-
+    result = [row["questionID"] for row in rows]
     return result
 
 
