@@ -32,8 +32,8 @@ def render_markdown(text: str, header: str | None = None, keyword: str | None = 
     elif header:
         text = header + text
 
-    # 若 keyword 存在，将整个 text 中的关键字替换为红色
-    if keyword is not None:
+    # 若 keyword 存在且不为空字符串，才进行高亮替换
+    if keyword:
         text = re.sub(re.escape(keyword), f'<span style="color:red">{keyword}</span>', text)
 
     lines = text.split("\n")
