@@ -241,8 +241,15 @@ pnpm-debug.log*
 # MacOS
 .DS_Store
 
-# RAG
+# Data
 *.bin
 *.pickle
 db_schema.json
 *.db
+*.db.*
+backup_sqlite.sh
+
+# img
+*.png
+*.jpg
+*.jpeg
