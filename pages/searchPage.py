@@ -244,23 +244,23 @@ def search():
             caption_parts = []
 
             if flag_copy:
-                render_markdown(content, tip_in_que)
+                render_markdown(content, tip_in_que, keyword)
                 if answer:
-                    render_markdown(answer, "【答案】")
+                    render_markdown(answer, "【答案】", keyword)
                 if analysis:
-                    render_markdown(analysis, "【解析】")
+                    render_markdown(analysis, "【解析】", keyword)
 
             else:
                 st.markdown("### 题目内容")
-                render_markdown(content)
+                render_markdown(content, None, keyword)
 
                 if answer:
                     st.markdown("### 答案")
-                    render_markdown(answer)
+                    render_markdown(answer, None, keyword)
 
                 if analysis:
                     st.markdown("### 解析")
-                    render_markdown(analysis)
+                    render_markdown(analysis, None, keyword)
 
                 if year:
                     caption_parts.append(f"📅 年份：{year}")
