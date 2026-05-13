@@ -14,7 +14,7 @@ def safe_render_image(img_path):
     except Exception as e:
         st.warning(f"⚠️ 图片加载出错：{e}")
 
-def render_markdown(text: str, header: str | None = None):
+def render_markdown(text: str, header: str | None = None, keyword: str | None = None):
     """
     Streamlit 友好的 Markdown 渲染：
     - 文本：st.markdown
@@ -26,10 +26,15 @@ def render_markdown(text: str, header: str | None = None):
     first_line = text.split("\n", 1)[0]
     match_first_img = IMAGE_PATTERN.search(first_line)
     match_table = is_markdown_table_start(text)
+    
     if (match_first_img or match_table) and header:
         st.write(header)
     elif header:
         text = header + text
+
+    # 若 keyword 存在，将整个 text 中的关键字替换为红色
+    if keyword is not None:
+        text = re.sub(re.escape(keyword), f'<span style="color:red">{keyword}</span>', text)
 
     lines = text.split("\n")
 
