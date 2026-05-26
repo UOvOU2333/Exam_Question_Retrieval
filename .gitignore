@@ -253,3 +253,9 @@ backup_sqlite.sh
 *.png
 *.jpg
 *.jpeg
+
+# chain
+chains/config.py
+
+# server
+start_streamlit.sh
