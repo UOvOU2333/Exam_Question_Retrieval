@@ -19,16 +19,23 @@ def update():
 
     if "show_delete_dialog" not in st.session_state:
         st.session_state.show_delete_dialog = False
-    
-    qid = st.session_state.get("update_qid")
 
     col_title, col_qid = st.columns(2)
-
     with col_title:
         st.title("试题更新")
-
     with col_qid:
-        qid = st.number_input(value=qid,min_value=0, label="被修改题目编号")
+        # 从 session_state 读取外部传入的初始 qid
+        qid = st.session_state.get("update_qid", 0)
+        # 显示数字输入框，并捕获用户修改后的值
+        qid = st.number_input(
+            "被修改题目编号",
+            min_value=0,
+            value=qid,
+            step=1,
+            key="update_qid_input"
+        )
+        # 将最新值同步回 session_state
+        st.session_state["update_qid"] = qid
 
     qInfo = get_question_by_id(qid)
 

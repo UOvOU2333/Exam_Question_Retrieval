@@ -2,7 +2,7 @@ import streamlit as st
 import streamlit_antd_components as sac
 
 from utils.auth_utils import require_login, check_role
-from utils.render_utils import render_markdown, is_markdown_table_start
+from utils.render_utils import render_markdown
 from utils.note_utils import display_notes_list
 from services.question_services import search_questions, get_question_by_id, search_by_note
 from services.note_services import get_all_note_types
@@ -244,31 +244,23 @@ def search():
             caption_parts = []
 
             if flag_copy:
-                render_markdown(content, tip_in_que)
+                render_markdown(content, tip_in_que, keyword)
                 if answer:
-                    if is_markdown_table_start(answer):
-                        render_markdown("【答案】")
-                        render_markdown(answer)
-                    else:
-                        render_markdown("【答案】" + answer)
+                    render_markdown(answer, "【答案】", keyword)
                 if analysis:
-                    if is_markdown_table_start(analysis):
-                        render_markdown("【解析】")
-                        render_markdown(analysis)
-                    else:
-                        render_markdown("【解析】" + analysis)
+                    render_markdown(analysis, "【解析】", keyword)
 
             else:
                 st.markdown("### 题目内容")
-                render_markdown(content)
+                render_markdown(content, None, keyword)
 
                 if answer:
                     st.markdown("### 答案")
-                    render_markdown(answer)
+                    render_markdown(answer, None, keyword)
 
                 if analysis:
                     st.markdown("### 解析")
-                    render_markdown(analysis)
+                    render_markdown(analysis, None, keyword)
 
                 if year:
                     caption_parts.append(f"📅 年份：{year}")
