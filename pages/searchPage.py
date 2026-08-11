@@ -12,7 +12,7 @@ def search():
     # ===== 登录校验（viewer 也允许）=====
     require_login()
 
-    col_title, col_show, col_tag = st.columns([2,2,1])
+    col_title, col_show, col_tag = st.columns([2, 1.25, 1.5])
 
     with col_title: 
         st.title("📚 试题检索")
@@ -28,9 +28,12 @@ def search():
     if show_choice != "隐藏":
 
         with col_tag:
-        #     flag_type = st.toggle("卷种精确")
-            flag_copy = st.toggle("复制模式")
-            flag_no = st.toggle("题号模糊")
+            col_filter, col_copy = st.columns(2)
+            with col_filter:
+                flag_new_textbook = st.toggle("新教材")
+                flag_no = st.toggle("题号模糊")
+            with col_copy:
+                flag_copy = st.toggle("复制模式")
         # =========================
         # 检索输入区
         # =========================
@@ -141,7 +144,10 @@ def search():
 
     else:
         with col_tag:
-            flag_copy = st.toggle("复制模式")
+            col_filter, col_copy = st.columns(2)
+            with col_copy:
+                flag_copy = st.toggle("复制模式")
+        flag_new_textbook = False
         flag_no = False
         years = []
         paper_type = ""
@@ -155,7 +161,7 @@ def search():
         placeholder="请输入关键词"
     )
 
-    if not paper_type.strip() and not question_no.strip() and not keyword.strip() and not years:
+    if not paper_type.strip() and not question_no.strip() and not keyword.strip() and not years and not flag_new_textbook:
         st.info("请输入搜索条件开始检索")
         return
 
@@ -171,7 +177,8 @@ def search():
         field_que=field_que,
         field_sou=field_sou,
         search_scope="qa" if search_scope == "题目/答案/解析" else "source",
-        no_fuzzy=flag_no
+        no_fuzzy=flag_no,
+        new_textbook_only=flag_new_textbook,
     )
     
     # 备注检索（如果有备注检索条件）

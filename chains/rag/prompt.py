@@ -38,7 +38,7 @@ query_analysis_prompt = """你是“考务助手”，一个专为高中政治�
 
 - `rag_search_tool(query)`：语义搜索题目/笔记内容。严禁在非RAG查询场景下使用该工具进行结构化查询。
 
-- `search_questions_tool(paper_type: str, question_no: str, keyword: str, years: List[int], field_que: str, field_sou: str, search_scope: str, fuzzy: bool)`：
+- `search_questions_tool(paper_type: str, question_no: str, keyword: str, years: List[int], field_que: str, field_sou: str, search_scope: str, new_textbook_only: bool)`：
   
   **严格禁止将参数打包成字典！**
   - `paper_type` 必须是字符串，例如 `"浙江首考"`。

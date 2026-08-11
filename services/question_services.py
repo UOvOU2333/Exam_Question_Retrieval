@@ -1,5 +1,7 @@
 import sqlite3
 
+from tools.exam_type_utils import get_new_textbook_sql_condition
+
 DB_PATH = "data/questions.db"
 
 
@@ -36,7 +38,8 @@ def search_questions(
     field_que: str = "all",
     field_sou: str = "all",
     search_scope: str = "qa",   # "qa" 或 "source"
-    no_fuzzy: bool = False
+    no_fuzzy: bool = False,
+    new_textbook_only: bool = False,
 ):
     conn = get_conn()
     conn.row_factory = sqlite3.Row
@@ -113,6 +116,10 @@ def search_questions(
         placeholders = ",".join(["?"] * len(years))
         conditions.append(f"year IN ({placeholders})")
         params.extend(years)
+
+    # 新教材筛选
+    if new_textbook_only:
+        conditions.append(get_new_textbook_sql_condition())
 
     # 构建最终 SQL
     sql = base_sql
