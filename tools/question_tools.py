@@ -32,17 +32,19 @@ def search_questions_tool(
     keyword: Optional[str] = None,
     years: Optional[List[int]] = None,
     search_scope: str = "qa",
+    new_textbook_only: bool = False,
     user_id: int = None,
     role: str = None,
 ) -> str:
     """
     根据卷种、题号、关键词、年份等条件搜索题目。
+    new_textbook_only: 仅搜索新教材题目（True=仅新教材，False=不限）。
     返回匹配题目的 ID 列表及简要信息（需进一步调用 get_question_tool 获取详情）。
     权限：viewer / editor / admin
     """
 
     # ========== 智能参数规范化（处理 LLM 常见错误） ==========
-    def _normalize(paper_type, question_no, keyword, years, search_scope):
+    def _normalize(paper_type, question_no, keyword, years, search_scope, new_textbook_only):
         # 情况1：paper_type 是字典
         if isinstance(paper_type, dict):
             trace("QuestionTools", f"{role} {user_id} AutoUnpackDict", str(paper_type))
@@ -52,6 +54,7 @@ def search_questions_tool(
                 paper_type.get("keyword") or keyword,
                 paper_type.get("years") or years,
                 paper_type.get("search_scope") or search_scope,
+                paper_type.get("new_textbook_only", new_textbook_only),
             )
         # 情况2：paper_type 是字符串且包含 '=' 和 '&'（查询字符串）
         if isinstance(paper_type, str) and '=' in paper_type and ('&' in paper_type or '&' in paper_type):
@@ -78,17 +81,21 @@ def search_questions_tool(
                 params.get("keyword") or keyword,
                 params.get("years") or years,
                 params.get("search_scope") or search_scope,
+                params.get("new_textbook_only", new_textbook_only),
             )
         # 情况3：正常
-        return (paper_type, question_no, keyword, years, search_scope)
+        return (paper_type, question_no, keyword, years, search_scope, new_textbook_only)
 
-    paper_type, question_no, keyword, years, search_scope = _normalize(
-        paper_type, question_no, keyword, years, search_scope
+    paper_type, question_no, keyword, years, search_scope, new_textbook_only = _normalize(
+        paper_type, question_no, keyword, years, search_scope, new_textbook_only
     )
+    # 确保 new_textbook_only 是布尔类型
+    if isinstance(new_textbook_only, str):
+        new_textbook_only = new_textbook_only.lower() in ("true", "1", "yes")
     # =======================================================
 
-    trace("QuestionTools", f"{role} {user_id} Search", 
-          f"paper_type={paper_type}, question_no={question_no}, keyword={keyword}, years={years}, search_scope={search_scope}")
+    trace("QuestionTools", f"{role} {user_id} Search",
+          f"paper_type={paper_type}, question_no={question_no}, keyword={keyword}, years={years}, search_scope={search_scope}, new_textbook_only={new_textbook_only}")
 
     if not _check_read_permission(role):
         return "错误：您没有查看题目的权限（需要 viewer / editor / admin 角色）"
@@ -103,6 +110,7 @@ def search_questions_tool(
             field_sou="all",
             search_scope=search_scope,
             no_fuzzy=False,
+            new_textbook_only=bool(new_textbook_only),
         )
         if not qids:
             trace("QuestionTools", f"{role} {user_id} Search Result", "no results")
