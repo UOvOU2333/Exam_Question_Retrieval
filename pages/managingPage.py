@@ -7,6 +7,7 @@ from pages.uploadPage import upload
 from pages.updatePage import update
 from pages.userManagePage import user_manage
 from pages.noteTypeManagingPage import note_type_management
+from pages.exportPage import export
 from utils.navbar_utils import navbar, info_update
 
 
@@ -26,6 +27,7 @@ def main():
             items=[
                 sac.MenuItem('试题更新', icon='pencil'),
                 sac.MenuItem('试题上传', icon='upload'),
+                sac.MenuItem('试卷导出', icon='download'),
                 sac.MenuItem('备注管理', icon='tags'),
                 sac.MenuItem('用户管理', icon='people'),
                 sac.MenuItem('用户中心', icon='person'),
@@ -49,6 +51,9 @@ def main():
             st.error("无权限访问")
         else:
             update()
+
+    elif selected == '试卷导出':
+        export()
 
     elif selected == '用户管理':
         if st.session_state.get("role") != "admin":
