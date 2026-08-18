@@ -287,11 +287,15 @@ def _render_blocks_to_word(doc, text: str):
 # 我们按优先级查找一个可用的 CJK 字体。
 _CJK_FONT_CANDIDATES = [
     # (字体显示名, 文件路径)
+    # macOS
     ("PingFang", "/System/Library/Fonts/PingFang.ttc"),
     ("STHeiti", "/System/Library/Fonts/STHeiti Medium.ttc"),
     ("HiraginoSansGB", "/System/Library/Fonts/Hiragino Sans GB.ttc"),
-    ("NotoSansCJK", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
-    ("NotoSansCJK", "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),
+    # Linux Noto CJK（各发行版路径不同）
+    ("NotoSansCJK", "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc"),  # RHEL/Alibaba Cloud Linux
+    ("NotoSansCJK", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),    # Debian/Ubuntu
+    ("NotoSansCJK", "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),    # 其他
+    # 文泉驿
     ("WenQuanYi", "/usr/share/fonts/wenquanyi/wqy-microhei/wqy-microhei.ttc"),
 ]
 
