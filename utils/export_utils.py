@@ -392,7 +392,8 @@ def export_to_pdf(
         # 题间空行
         pdf.ln(4)
 
-    return pdf.output()
+    # fpdf2 的 output() 返回 bytearray，streamlit download_button 需要 bytes
+    return bytes(pdf.output())
 
 
 def _render_blocks_to_pdf(pdf, text: str, font_name: str):
