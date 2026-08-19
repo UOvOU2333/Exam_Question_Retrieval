@@ -23,21 +23,55 @@ import markdown
 # Markdown → HTML
 # ============================================================
 
+# Markdown 表格分隔行正则：| --- | --- |
+# 以 | 开头，只含 |、空格、-、:，以 | 结尾
+_TABLE_SEP_PAT = re.compile(r"^\s*\|[\s\-:|]+\|\s*$")
+
+
+def _is_table_sep(line: str) -> bool:
+    """判断一行是否是 Markdown 表格分隔行（| --- | --- |）。
+    分隔行必须含至少一个 -，否则纯空格的数据行 |  |  | 也会被误判。
+    """
+    s = line.strip()
+    if not s.startswith("|") or "-" not in s:
+        return False
+    return _TABLE_SEP_PAT.match(line) is not None
+
+
 def _preprocess_markdown(text: str) -> str:
     """
     预处理题目 Markdown：
-    - 把单个 \\n（行内换行）转成 Markdown 硬换行（行尾两空格），
-      这样 markdown 库会生成 <br>，保留题干/选项的换行。
-    - 段落间的空行（\\n\\n）保持不变（Markdown 段落分隔）。
+    1. 在 Markdown 表格的表头行前插入空行，确保 markdown 库能识别表格
+       （题目录入时表格前往往没空行，导致表格被当成普通文本）。
+    2. 把单个 \\n（行内换行）转成 Markdown 硬换行（行尾两空格），
+       这样 markdown 库会生成 <br>，保留题干/选项的换行。
+       表格行（以 | 开头）不加硬换行，否则破坏表格。
     """
     if not text:
         return ""
     lines = text.split("\n")
+
+    # 1. 在表格表头行前插入空行
+    inserted = []
+    for i, line in enumerate(lines):
+        if (
+            i + 1 < len(lines)
+            and line.strip().startswith("|")
+            and _is_table_sep(lines[i + 1])
+            and (len(inserted) == 0 or inserted[-1].strip() != "")
+        ):
+            inserted.append("")  # 插入空行
+        inserted.append(line)
+    lines = inserted
+
+    # 2. 硬换行处理
     processed = []
     for i, line in enumerate(lines):
         if i < len(lines) - 1 and lines[i + 1].strip() != "" and line.strip() != "":
-            # 当前行后面还有非空内容且当前行非空 → 加硬换行
-            processed.append(line + "  ")
+            if line.strip().startswith("|"):
+                processed.append(line)
+            else:
+                processed.append(line + "  ")
         else:
             processed.append(line)
     return "\n".join(processed)
@@ -52,43 +86,35 @@ def markdown_to_html(text: str) -> str:
 
 
 # ============================================================
-# 图片处理：缺失图片的容错
+# 图片处理：缺失图片的容错 + 限制宽度
 # ============================================================
 
-def _resolve_image_path_in_html(html: str, max_width_mm: float = 180) -> str:
+def _resolve_image_path_in_html(html: str, max_width_px: int = 680) -> str:
     """
     处理 HTML 里的 <img src="path">：
     - 缺失图片 → 替换成提示文本
-    - 存在图片 → 转成绝对路径，并加 width 属性限制宽度（防止超宽）
-      max_width_mm: 图片最大宽度（mm），默认 180（A4 可用宽度约 190mm，留点边距）
+    - 存在图片 → 转成绝对路径，并加 width 属性限制宽度（像素，供 htmldocx 用）
+      max_width_px: 图片最大宽度（像素），默认 680px（约对应 A4 可用宽度）
     """
     from PIL import Image
 
     def replace_img(match):
-        full = match.group(0)
         src = match.group(1)
         if not src:
-            return full
-        # 解析路径
+            return match.group(0)
         abs_path = None
         if os.path.isabs(src) and os.path.exists(src):
             abs_path = src
         elif os.path.exists(src):
             abs_path = os.path.abspath(src)
         if abs_path is None:
-            # 图片缺失 → 替换成提示文本
             return f'<p>[图片缺失：{src}]</p>'
-        # 图片存在 → 计算合适的宽度
         try:
             with Image.open(abs_path) as im:
                 w_px, h_px = im.size
-            # 转 mm（按 96 DPI）
-            w_mm = w_px * 25.4 / 96.0
-            if w_mm > max_width_mm:
-                w_mm = max_width_mm
-            # 重新生成 <img> 标签，带 width 属性（mm）
-            # htmldocx 和 fpdf2 都支持 width 属性
-            return f'<img src="{abs_path}" width="{w_mm:.1f}mm" />'
+            if w_px > max_width_px:
+                w_px = max_width_px
+            return f'<img src="{abs_path}" width="{w_px}" />'
         except Exception:
             return f'<p>[图片加载失败：{src}]</p>'
 
@@ -106,9 +132,7 @@ def export_to_word(
     include_analysis: bool = True,
     include_source: bool = True,
 ) -> bytes:
-    """
-    把一套试卷的题目导出为 Word 文档，返回二进制内容。
-    """
+    """把一套试卷的题目导出为 Word 文档，返回二进制内容。"""
     from docx import Document
     from docx.shared import Pt
     from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -131,14 +155,13 @@ def export_to_word(
 
     parser = HtmlToDocx()
 
-    def add_html_safe(html: str, doc):
+    def add_html_safe(html: str):
         """安全地把 HTML 加到 Word 文档，htmldocx 出错时降级为纯文本。"""
         if not html.strip():
             return
         try:
             parser.add_html_to_document(html, doc)
         except Exception:
-            # 降级：去掉所有 HTML 标签，按纯文本写入
             plain = re.sub(r'<[^>]+>', '', html)
             plain = plain.replace('&nbsp;', ' ').replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
             for line in plain.split('\n'):
@@ -154,7 +177,7 @@ def export_to_word(
     info_run = info_p.add_run(f"共 {len(questions)} 道题")
     info_run.font.size = Pt(10)
 
-    doc.add_paragraph()  # 空行
+    doc.add_paragraph()
 
     for idx, q in enumerate(questions, 1):
         qno = q.get("question_no") or str(idx)
@@ -164,29 +187,24 @@ def export_to_word(
         source = q.get("source") or ""
         analysis_source = q.get("analysis_source") or ""
 
-        # 题号标题
         doc.add_heading(f"第 {qno} 题", level=1)
 
-        # 题目内容（markdown → html → docx）
         html = markdown_to_html(content)
         html = _resolve_image_path_in_html(html)
-        add_html_safe(html, doc)
+        add_html_safe(html)
 
-        # 答案
         if include_answer and answer:
             doc.add_heading("【答案】", level=2)
             html = markdown_to_html(answer)
             html = _resolve_image_path_in_html(html)
-            add_html_safe(html, doc)
+            add_html_safe(html)
 
-        # 解析
         if include_analysis and analysis:
             doc.add_heading("【解析】", level=2)
             html = markdown_to_html(analysis)
             html = _resolve_image_path_in_html(html)
-            add_html_safe(html, doc)
+            add_html_safe(html)
 
-        # 来源
         if include_source:
             src_parts = []
             if source:
@@ -199,7 +217,6 @@ def export_to_word(
                 run.font.size = Pt(9)
                 run.italic = True
 
-        # 题目间分隔
         if idx < len(questions):
             doc.add_paragraph()
 
@@ -209,68 +226,53 @@ def export_to_word(
 
 
 # ============================================================
-# PDF 导出（markdown → html → fpdf2.write_html）
+# PDF 导出（markdown → html → fpdf2）
 # ============================================================
 
-# 中文字体候选路径（macOS / 各 Linux 发行版）
 _CJK_FONT_CANDIDATES = [
     ("PingFang", "/System/Library/Fonts/PingFang.ttc"),
     ("STHeiti", "/System/Library/Fonts/STHeiti Medium.ttc"),
     ("HiraginoSansGB", "/System/Library/Fonts/Hiragino Sans GB.ttc"),
-    ("NotoSansCJK", "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc"),  # RHEL/Alibaba Cloud Linux
-    ("NotoSansCJK", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),    # Debian/Ubuntu
-    ("NotoSansCJK", "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),    # 其他
+    ("NotoSansCJK", "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc"),
+    ("NotoSansCJK", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+    ("NotoSansCJK", "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),
     ("WenQuanYi", "/usr/share/fonts/wenquanyi/wqy-microhei/wqy-microhei.ttc"),
 ]
 
 
 def _find_cjk_font() -> Tuple[str, str]:
-    """返回 (字体名, 字体文件路径)，找不到抛异常。"""
     for name, path in _CJK_FONT_CANDIDATES:
         if os.path.exists(path):
             return name, path
-    raise RuntimeError(
-        "未找到可用的中文字体。请安装 Noto CJK 或 PingFang 等中文字体。"
-    )
+    raise RuntimeError("未找到可用的中文字体。请安装 Noto CJK 或 PingFang 等中文字体。")
 
 
-def _render_html_to_pdf(pdf, html: str, font_name: str):
+def _render_html_to_pdf(pdf, html: str):
     """
     把 HTML 渲染到 PDF。
-    fpdf2 的 write_html 对 <img> 的 width 支持有限（不支持 mm 单位），
-    所以把图片从 HTML 里提取出来，单独用 pdf.image() 渲染（能精确控制宽度），
-    其余 HTML 仍用 write_html 渲染。
+    图片单独用 pdf.image() 渲染（精确控制宽度），其余 HTML 用 write_html。
     """
     from PIL import Image
 
     if not html.strip():
         return
 
-    # 用 <img> 标签把 HTML 拆成多段
     img_pat = re.compile(r'<img[^>]*src=["\']([^"\']*)["\'][^>]*/?>')
     parts = []
     last_end = 0
     for m in img_pat.finditer(html):
-        # 图片前的 HTML
         if m.start() > last_end:
             parts.append(("html", html[last_end:m.start()]))
-        # 图片
-        src = m.group(1)
-        parts.append(("image", src))
+        parts.append(("image", m.group(1)))
         last_end = m.end()
-    # 最后一段
     if last_end < len(html):
         parts.append(("html", html[last_end:]))
 
-    # 修复被截断的 <p> 标签：每段 HTML 若含未闭合的 <p> 则补上 </p>，
-    # 若以 </p> 开头则补上 <p>，避免 fpdf2 write_html 警告
+    # 修复被截断的 <p> 标签
     fixed_parts = []
     for kind, payload in parts:
         if kind == "html":
             h = payload
-            # 简单修复：去掉孤立的 <p> 开头和 </p> 结尾，让内容成为纯文本段
-            # fpdf2 的 write_html 对 <p> 包裹的文本处理正常，对残缺的会警告
-            # 这里用更稳妥的方式：把残缺的 <p>/</p> 去掉
             open_p = len(re.findall(r'<p[^>]*>', h))
             close_p = len(re.findall(r'</p>', h))
             if open_p > close_p:
@@ -281,7 +283,7 @@ def _render_html_to_pdf(pdf, html: str, font_name: str):
         fixed_parts.append((kind, payload))
     parts = fixed_parts
 
-    page_width = pdf.w - 2 * pdf.l_margin  # A4 可用宽度（mm）
+    page_width = pdf.w - 2 * pdf.l_margin
 
     for kind, payload in parts:
         if kind == "html":
@@ -290,7 +292,6 @@ def _render_html_to_pdf(pdf, html: str, font_name: str):
                 try:
                     pdf.write_html(h)
                 except Exception:
-                    # 降级：纯文本
                     plain = re.sub(r'<[^>]+>', '', h)
                     plain = plain.replace('&nbsp;', ' ').replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
                     if plain.strip():
@@ -319,9 +320,7 @@ def export_to_pdf(
     include_analysis: bool = True,
     include_source: bool = True,
 ) -> bytes:
-    """
-    把一套试卷的题目导出为 PDF，返回二进制内容。
-    """
+    """把一套试卷的题目导出为 PDF，返回二进制内容。"""
     from fpdf import FPDF
 
     font_name, font_path = _find_cjk_font()
@@ -329,12 +328,10 @@ def export_to_pdf(
     pdf = FPDF(format="A4")
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
-    # 注册 Regular 和 Bold（表格表头需要粗体）
     pdf.add_font(font_name, fname=font_path)
     pdf.add_font(font_name, style="B", fname=font_path)
     pdf.set_font(font_name, size=11)
 
-    # 标题
     pdf.set_font_size(20)
     pdf.multi_cell(0, 12, paper_title, align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(2)
@@ -350,18 +347,15 @@ def export_to_pdf(
         source = q.get("source") or ""
         analysis_source = q.get("analysis_source") or ""
 
-        # 题号
         pdf.set_font_size(14)
         pdf.multi_cell(0, 10, f"第 {qno} 题", new_x="LMARGIN", new_y="NEXT")
         pdf.ln(1)
         pdf.set_font_size(11)
 
-        # 题目内容（markdown → html → fpdf2）
         html = markdown_to_html(content)
         html = _resolve_image_path_in_html(html)
-        _render_html_to_pdf(pdf, html, font_name)
+        _render_html_to_pdf(pdf, html)
 
-        # 答案
         if include_answer and answer:
             pdf.ln(2)
             pdf.set_font_size(12)
@@ -369,9 +363,8 @@ def export_to_pdf(
             pdf.set_font_size(11)
             html = markdown_to_html(answer)
             html = _resolve_image_path_in_html(html)
-            _render_html_to_pdf(pdf, html, font_name)
+            _render_html_to_pdf(pdf, html)
 
-        # 解析
         if include_analysis and analysis:
             pdf.ln(2)
             pdf.set_font_size(12)
@@ -379,9 +372,8 @@ def export_to_pdf(
             pdf.set_font_size(11)
             html = markdown_to_html(analysis)
             html = _resolve_image_path_in_html(html)
-            _render_html_to_pdf(pdf, html, font_name)
+            _render_html_to_pdf(pdf, html)
 
-        # 来源
         if include_source:
             src_parts = []
             if source:
@@ -394,8 +386,6 @@ def export_to_pdf(
                 pdf.multi_cell(0, 6, "；".join(src_parts), new_x="LMARGIN", new_y="NEXT")
                 pdf.set_font_size(11)
 
-        # 题间空行
         pdf.ln(4)
 
-    # fpdf2 的 output() 返回 bytearray，streamlit download_button 需要 bytes
     return bytes(pdf.output())
