@@ -55,25 +55,42 @@ def markdown_to_html(text: str) -> str:
 # 图片处理：缺失图片的容错
 # ============================================================
 
-def _resolve_image_path_in_html(html: str) -> str:
+def _resolve_image_path_in_html(html: str, max_width_mm: float = 180) -> str:
     """
-    把 HTML 里的 <img src="path"> 中缺失的图片替换成提示文本，
-    存在的转成绝对路径（htmldocx / fpdf2 能正确加载）。
+    处理 HTML 里的 <img src="path">：
+    - 缺失图片 → 替换成提示文本
+    - 存在图片 → 转成绝对路径，并加 width 属性限制宽度（防止超宽）
+      max_width_mm: 图片最大宽度（mm），默认 180（A4 可用宽度约 190mm，留点边距）
     """
+    from PIL import Image
+
     def replace_img(match):
         full = match.group(0)
         src = match.group(1)
         if not src:
             return full
         # 解析路径
+        abs_path = None
         if os.path.isabs(src) and os.path.exists(src):
-            return full
-        if os.path.exists(src):
-            # 转成绝对路径
+            abs_path = src
+        elif os.path.exists(src):
             abs_path = os.path.abspath(src)
-            return full.replace(src, abs_path)
-        # 图片缺失 → 替换成提示文本
-        return f'<p>[图片缺失：{src}]</p>'
+        if abs_path is None:
+            # 图片缺失 → 替换成提示文本
+            return f'<p>[图片缺失：{src}]</p>'
+        # 图片存在 → 计算合适的宽度
+        try:
+            with Image.open(abs_path) as im:
+                w_px, h_px = im.size
+            # 转 mm（按 96 DPI）
+            w_mm = w_px * 25.4 / 96.0
+            if w_mm > max_width_mm:
+                w_mm = max_width_mm
+            # 重新生成 <img> 标签，带 width 属性（mm）
+            # htmldocx 和 fpdf2 都支持 width 属性
+            return f'<img src="{abs_path}" width="{w_mm:.1f}mm" />'
+        except Exception:
+            return f'<p>[图片加载失败：{src}]</p>'
 
     return re.sub(r'<img[^>]*src=["\']([^"\']*)["\'][^>]*/?>', replace_img, html)
 
@@ -114,6 +131,20 @@ def export_to_word(
 
     parser = HtmlToDocx()
 
+    def add_html_safe(html: str, doc):
+        """安全地把 HTML 加到 Word 文档，htmldocx 出错时降级为纯文本。"""
+        if not html.strip():
+            return
+        try:
+            parser.add_html_to_document(html, doc)
+        except Exception:
+            # 降级：去掉所有 HTML 标签，按纯文本写入
+            plain = re.sub(r'<[^>]+>', '', html)
+            plain = plain.replace('&nbsp;', ' ').replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
+            for line in plain.split('\n'):
+                if line.strip():
+                    doc.add_paragraph(line.strip())
+
     # 标题
     title_p = doc.add_heading(paper_title, level=0)
     title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -139,24 +170,21 @@ def export_to_word(
         # 题目内容（markdown → html → docx）
         html = markdown_to_html(content)
         html = _resolve_image_path_in_html(html)
-        if html.strip():
-            parser.add_html_to_document(html, doc)
+        add_html_safe(html, doc)
 
         # 答案
         if include_answer and answer:
             doc.add_heading("【答案】", level=2)
             html = markdown_to_html(answer)
             html = _resolve_image_path_in_html(html)
-            if html.strip():
-                parser.add_html_to_document(html, doc)
+            add_html_safe(html, doc)
 
         # 解析
         if include_analysis and analysis:
             doc.add_heading("【解析】", level=2)
             html = markdown_to_html(analysis)
             html = _resolve_image_path_in_html(html)
-            if html.strip():
-                parser.add_html_to_document(html, doc)
+            add_html_safe(html, doc)
 
         # 来源
         if include_source:
@@ -206,6 +234,84 @@ def _find_cjk_font() -> Tuple[str, str]:
     )
 
 
+def _render_html_to_pdf(pdf, html: str, font_name: str):
+    """
+    把 HTML 渲染到 PDF。
+    fpdf2 的 write_html 对 <img> 的 width 支持有限（不支持 mm 单位），
+    所以把图片从 HTML 里提取出来，单独用 pdf.image() 渲染（能精确控制宽度），
+    其余 HTML 仍用 write_html 渲染。
+    """
+    from PIL import Image
+
+    if not html.strip():
+        return
+
+    # 用 <img> 标签把 HTML 拆成多段
+    img_pat = re.compile(r'<img[^>]*src=["\']([^"\']*)["\'][^>]*/?>')
+    parts = []
+    last_end = 0
+    for m in img_pat.finditer(html):
+        # 图片前的 HTML
+        if m.start() > last_end:
+            parts.append(("html", html[last_end:m.start()]))
+        # 图片
+        src = m.group(1)
+        parts.append(("image", src))
+        last_end = m.end()
+    # 最后一段
+    if last_end < len(html):
+        parts.append(("html", html[last_end:]))
+
+    # 修复被截断的 <p> 标签：每段 HTML 若含未闭合的 <p> 则补上 </p>，
+    # 若以 </p> 开头则补上 <p>，避免 fpdf2 write_html 警告
+    fixed_parts = []
+    for kind, payload in parts:
+        if kind == "html":
+            h = payload
+            # 简单修复：去掉孤立的 <p> 开头和 </p> 结尾，让内容成为纯文本段
+            # fpdf2 的 write_html 对 <p> 包裹的文本处理正常，对残缺的会警告
+            # 这里用更稳妥的方式：把残缺的 <p>/</p> 去掉
+            open_p = len(re.findall(r'<p[^>]*>', h))
+            close_p = len(re.findall(r'</p>', h))
+            if open_p > close_p:
+                h = h + '</p>' * (open_p - close_p)
+            elif close_p > open_p:
+                h = '<p>' * (close_p - open_p) + h
+            payload = h
+        fixed_parts.append((kind, payload))
+    parts = fixed_parts
+
+    page_width = pdf.w - 2 * pdf.l_margin  # A4 可用宽度（mm）
+
+    for kind, payload in parts:
+        if kind == "html":
+            h = payload.strip()
+            if h:
+                try:
+                    pdf.write_html(h)
+                except Exception:
+                    # 降级：纯文本
+                    plain = re.sub(r'<[^>]+>', '', h)
+                    plain = plain.replace('&nbsp;', ' ').replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
+                    if plain.strip():
+                        pdf.multi_cell(0, 7, plain, new_x="LMARGIN", new_y="NEXT")
+        elif kind == "image":
+            src = payload
+            if not os.path.exists(src):
+                pdf.multi_cell(0, 7, f"[图片缺失：{src}]", new_x="LMARGIN", new_y="NEXT")
+                continue
+            try:
+                with Image.open(src) as im:
+                    w_px, h_px = im.size
+                w_mm = w_px * 25.4 / 96.0
+                if w_mm > page_width:
+                    w_mm = page_width
+                pdf.image(src, w=w_mm)
+                pdf.ln(2)
+            except Exception:
+                pdf.multi_cell(0, 7, f"[图片加载失败：{src}]", new_x="LMARGIN", new_y="NEXT")
+
+
 def export_to_pdf(
     questions: List[dict],
     paper_title: str,
@@ -253,12 +359,7 @@ def export_to_pdf(
         # 题目内容（markdown → html → fpdf2）
         html = markdown_to_html(content)
         html = _resolve_image_path_in_html(html)
-        if html.strip():
-            try:
-                pdf.write_html(html)
-            except Exception:
-                # 降级：纯文本
-                pdf.multi_cell(0, 7, content, new_x="LMARGIN", new_y="NEXT")
+        _render_html_to_pdf(pdf, html, font_name)
 
         # 答案
         if include_answer and answer:
@@ -268,11 +369,7 @@ def export_to_pdf(
             pdf.set_font_size(11)
             html = markdown_to_html(answer)
             html = _resolve_image_path_in_html(html)
-            if html.strip():
-                try:
-                    pdf.write_html(html)
-                except Exception:
-                    pdf.multi_cell(0, 7, answer, new_x="LMARGIN", new_y="NEXT")
+            _render_html_to_pdf(pdf, html, font_name)
 
         # 解析
         if include_analysis and analysis:
@@ -282,11 +379,7 @@ def export_to_pdf(
             pdf.set_font_size(11)
             html = markdown_to_html(analysis)
             html = _resolve_image_path_in_html(html)
-            if html.strip():
-                try:
-                    pdf.write_html(html)
-                except Exception:
-                    pdf.multi_cell(0, 7, analysis, new_x="LMARGIN", new_y="NEXT")
+            _render_html_to_pdf(pdf, html, font_name)
 
         # 来源
         if include_source:
