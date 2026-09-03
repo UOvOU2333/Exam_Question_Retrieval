@@ -161,6 +161,10 @@ def export_to_word(
             return
         try:
             parser.add_html_to_document(html, doc)
+            # htmldocx 的 set_initial_attrs 不会重置 self.run，当 HTML 以 <table>
+            # 结尾时 self.run 会残留指向表格前的段落，污染后续 add_html_to_document
+            # 调用（表现为上一题的文本重复出现在后续题目中）。手动清空以避免污染。
+            parser.run = None
         except Exception:
             plain = re.sub(r'<[^>]+>', '', html)
             plain = plain.replace('&nbsp;', ' ').replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
