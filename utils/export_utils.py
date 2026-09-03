@@ -153,18 +153,18 @@ def export_to_word(
         rpr.append(rfonts)
     rfonts.set(qn("w:eastAsia"), "宋体")
 
-    parser = HtmlToDocx()
-
     def add_html_safe(html: str):
         """安全地把 HTML 加到 Word 文档，htmldocx 出错时降级为纯文本。"""
         if not html.strip():
             return
+        # 每次都新建 HtmlToDocx 实例。htmldocx 继承 HTMLParser，当 HTML 含有
+        # htmldocx 无法处理的表格（如带 colspan 的原生 HTML 表格）时会抛异常，
+        # 此时 HTMLParser 的内部缓冲区 rawdata 会残留未解析的 HTML 片段，污染
+        # 后续 feed() 调用，导致后续题目的文本里重复出现前面题目的内容。
+        # 新建实例可彻底避免状态残留。
+        parser = HtmlToDocx()
         try:
             parser.add_html_to_document(html, doc)
-            # htmldocx 的 set_initial_attrs 不会重置 self.run，当 HTML 以 <table>
-            # 结尾时 self.run 会残留指向表格前的段落，污染后续 add_html_to_document
-            # 调用（表现为上一题的文本重复出现在后续题目中）。手动清空以避免污染。
-            parser.run = None
         except Exception:
             plain = re.sub(r'<[^>]+>', '', html)
             plain = plain.replace('&nbsp;', ' ').replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
