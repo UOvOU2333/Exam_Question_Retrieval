@@ -13,7 +13,7 @@ from utils.navbar_utils import navbar
 
 BEIAN_CODE = "32011402012515"
 BEIAN_URL = f"https://beian.mps.gov.cn/#/query/webSearch?code={BEIAN_CODE}"
-BEIAN_LOGO = Path("static/images/logo/beiLogo.png")
+BEIAN_LOGO = Path("static/images/logo/beian.png")
 
 
 def render_beian_footer():
