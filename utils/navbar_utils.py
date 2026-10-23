@@ -5,7 +5,7 @@ import streamlit as st
 # ==============================
 
 @st.cache_resource
-def get_logo(logo_path="static/images/logo/V1.0.png"):
+def get_logo(logo_path="static/images/logo/V2.png"):
     from PIL import Image
     return Image.open(logo_path)
 

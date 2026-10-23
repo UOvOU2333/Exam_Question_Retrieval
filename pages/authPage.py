@@ -1,7 +1,7 @@
 # authPage.py
 import streamlit as st
 
-from services.user_services import authenticate
+from services.user_services import authenticate, is_ai_enabled
 
 
 # ========== 登录页 / 用户主页 ==========
@@ -47,19 +47,19 @@ def show_dashboard():
     username = st.session_state["username"]
     role = st.session_state["role"]
 
-    col_welcome, col_role = st.columns([1, 3])
-    with col_welcome:
-        st.success(f"欢迎你，{username}")
+    st.success(f"欢迎你，{username}")
 
-    # ===== 权限提示 =====
+    # ===== 权限提示（单独一行）=====
     if role == "admin":
         info = "管理用户、管理试题"
     elif role == "editor":
         info = "管理试题"
     elif role == "viewer":
         info = "查看试题"
-    with col_role:
-        st.info(f"当前角色：**{role}**，你的权限：**{info}**")
+
+    ai_ok = is_ai_enabled(st.session_state.get("user_id"))
+    ai_text = "✅ 可使用" if ai_ok else "❌ 未授权"
+    st.info(f"当前角色：**{role}**，你的权限：**{info}**　|　AI 助手：**{ai_text}**")
 
     # ===== 退出 =====
     if st.button("退出登录"):

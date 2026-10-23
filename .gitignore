@@ -253,8 +253,9 @@ backup_sqlite.sh
 *.png
 *.jpg
 *.jpeg
-# 备案图标豁免（仅此文件入库，其余图片仍忽略）
-!static/images/logo/beian.png
+# logo 文件夹豁免（入库，其余图片仍忽略）
+!static/images/logo/
+!static/images/logo/*
 
 # chain
 chains/config.py
