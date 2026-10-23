@@ -223,21 +223,30 @@ def update_question(qid, content, answer, analysis, source, analysis_source, yea
 
 
 # =====================
-# 批量自动检测并回填题型（仅回填当前为空的题目）
+# 批量自动检测并回填题型
+# force=False: 仅回填当前为空的题目
+# force=True:  重新检测所有题目（覆盖已有值）
 # =====================
-def batch_detect_and_fill_question_type():
+def batch_detect_and_fill_question_type(force=False):
     conn = get_conn()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    cur.execute("""
-        SELECT questionID, content, answer, question_no, question_type
-        FROM questions
-        WHERE isInRecycleBin = 0 AND (question_type IS NULL OR question_type = '')
-    """)
+    if force:
+        cur.execute("""
+            SELECT questionID, content, answer, question_no, question_type
+            FROM questions
+            WHERE isInRecycleBin = 0
+        """)
+    else:
+        cur.execute("""
+            SELECT questionID, content, answer, question_no, question_type
+            FROM questions
+            WHERE isInRecycleBin = 0 AND (question_type IS NULL OR question_type = '')
+        """)
     rows = cur.fetchall()
 
-    stats = {"选择题": 0, "非选择题": 0, "跳过": 0}
+    stats = {"选择题": 0, "非选择题": 0, "判断题": 0, "跳过": 0}
     for row in rows:
         qtype = detect_question_type(row["content"], row["answer"], row["question_no"])
         if qtype:

@@ -147,7 +147,7 @@ KNOWLEDGE_MODULES = [
     "选必一", "选必二", "选必三",
 ]
 
-QUESTION_TYPES = ["选择题", "非选择题"]
+QUESTION_TYPES = ["选择题", "非选择题", "判断题"]
 
 
 def detect_question_type(content, answer, question_no=None):
@@ -155,11 +155,15 @@ def detect_question_type(content, answer, question_no=None):
     根据题目内容、答案、题号自动检测题型。
 
     返回:
-        "选择题" / "非选择题" / None(无法确定，待人工)
+        "选择题" / "非选择题" / "判断题" / None(无法确定，待人工)
     """
     if answer is None:
         answer = ""
     answer_stripped = answer.strip()
+
+    # 判断题特征：答案为 T / F（不区分大小写）
+    if answer_stripped and len(answer_stripped) == 1 and answer_stripped.upper() in ("T", "F"):
+        return "判断题"
 
     # 选择题特征：答案为纯字母组合（A-D），如 A / B / AB / ABCD
     if answer_stripped and len(answer_stripped) <= 4 and all(c in "ABCDabcd" for c in answer_stripped):
