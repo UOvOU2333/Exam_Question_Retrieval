@@ -4,7 +4,10 @@
   1. 备份数据库
   2. 为 questions 表添加 question_type / knowledge_modules 列
   3. 批量自动检测并回填题型（无法判定的留空待人工）
-用法:  python3 migrate_db.py [数据库路径]
+用法:
+  python3 migrate_db.py              # 仅回填题型为空的题目
+  python3 migrate_db.py --force      # 重新检测所有题目（覆盖已有值）
+  python3 migrate_db.py /path/to.db  # 指定数据库路径
 """
 import sqlite3
 import os
@@ -15,11 +18,14 @@ DB_PATH = "data/questions.db"
 
 
 def detect_question_type(content, answer, question_no=None):
-    """自动检测题型：选择题 / 非选择题 / None"""
+    """自动检测题型：选择题 / 非选择题 / 判断题 / None"""
     if answer is None:
         answer = ""
     a = answer.strip()
 
+    # 判断题：答案为 T/F（不区分大小写）
+    if a.upper() in ("T", "F"):
+        return "判断题"
     # 答案为纯字母组合（A-D，≤4字符）→ 选择题
     if a and len(a) <= 4 and all(c in "ABCDabcd" for c in a):
         return "选择题"
@@ -38,7 +44,7 @@ def detect_question_type(content, answer, question_no=None):
     return None
 
 
-def main():
+def main(force=False):
     db_path = DB_PATH
     if not os.path.exists(db_path):
         print("数据库文件不存在: %s" % db_path)
@@ -64,13 +70,22 @@ def main():
     conn.commit()
 
     # 3. 批量回填题型
-    cur.execute(
-        "SELECT questionID, content, answer, question_no, question_type "
-        "FROM questions WHERE isInRecycleBin = 0 "
-        "AND (question_type IS NULL OR question_type = '')"
-    )
+    if force:
+        cur.execute(
+            "SELECT questionID, content, answer, question_no, question_type "
+            "FROM questions WHERE isInRecycleBin = 0"
+        )
+        print("模式: --force（重新检测所有题目）")
+    else:
+        cur.execute(
+            "SELECT questionID, content, answer, question_no, question_type "
+            "FROM questions WHERE isInRecycleBin = 0 "
+            "AND (question_type IS NULL OR question_type = '')"
+        )
+        print("模式: 仅回填题型为空的题目")
     rows = cur.fetchall()
-    stats = {"选择题": 0, "非选择题": 0, "跳过": 0}
+
+    stats = {"选择题": 0, "非选择题": 0, "判断题": 0, "跳过": 0}
     for qid, content, answer, qno, _ in rows:
         qtype = detect_question_type(content, answer, qno)
         if qtype:
@@ -91,8 +106,8 @@ def main():
     dist = cur.fetchall()
     conn.close()
 
-    print("\n批量回填完成：选择题 %d / 非选择题 %d / 待人工 %d"
-          % (stats["选择题"], stats["非选择题"], stats["跳过"]))
+    print("\n批量回填完成：选择题 %d / 非选择题 %d / 判断题 %d / 待人工 %d"
+          % (stats["选择题"], stats["非选择题"], stats["判断题"], stats["跳过"]))
     print("\n当前题型分布：")
     for qt, cnt in dist:
         print("  %-8s %d 题" % (qt or "(空)", cnt))
@@ -101,6 +116,10 @@ def main():
 
 if __name__ == "__main__":
     import sys
-    if len(sys.argv) > 1:
-        DB_PATH = sys.argv[1]
-    main()
+    force = False
+    for arg in sys.argv[1:]:
+        if arg == "--force":
+            force = True
+        elif not arg.startswith("-"):
+            DB_PATH = arg
+    main(force=force)
