@@ -120,3 +120,65 @@ def get_user_by_id(user_id):
     row = cur.fetchone()
     conn.close()
     return row
+
+
+# =====================
+# AI 助手使用白名单
+# =====================
+def _ensure_ai_whitelist_table():
+    conn = get_conn()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ai_whitelist (
+            user_id INTEGER PRIMARY KEY,
+            added_at TEXT,
+            added_by INTEGER
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def is_ai_enabled(user_id) -> bool:
+    _ensure_ai_whitelist_table()
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT role FROM users WHERE id = ? AND is_deleted = 0", (user_id,))
+    row = cur.fetchone()
+    if row and row[0] == "admin":
+        conn.close()
+        return True
+    cur.execute("SELECT 1 FROM ai_whitelist WHERE user_id = ?", (user_id,))
+    wl = cur.fetchone()
+    conn.close()
+    return wl is not None
+
+
+def get_ai_whitelist() -> list:
+    _ensure_ai_whitelist_table()
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM ai_whitelist")
+    rows = cur.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+
+def add_ai_whitelist(user_id, added_by):
+    _ensure_ai_whitelist_table()
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT OR IGNORE INTO ai_whitelist (user_id, added_at, added_by) VALUES (?, ?, ?)",
+        (user_id, datetime.now().isoformat(), added_by),
+    )
+    conn.commit()
+    conn.close()
+
+
+def remove_ai_whitelist(user_id):
+    _ensure_ai_whitelist_table()
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM ai_whitelist WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
