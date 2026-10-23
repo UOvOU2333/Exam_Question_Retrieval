@@ -6,6 +6,11 @@ from utils.auth_utils import require_role
 from utils.render_utils import render_markdown
 from utils.multi_func import rich_markdown
 from services.question_services import create_question
+from tools.exam_type_utils import (
+    QUESTION_TYPES,
+    KNOWLEDGE_MODULES,
+    detect_question_type,
+)
 
 # =========================
 # 图片存储配置
@@ -69,6 +74,25 @@ def upload():
             placeholder="XX卷", key=f"upload_paper_type_{key_suffix}")
         question_no = st.text_input("题号", key=f"upload_question_no_{key_suffix}")
 
+        # 题型（自动检测预填，可手动修改）
+        type_options = ["（未选择）"] + QUESTION_TYPES
+        qt_key = f"upload_question_type_{key_suffix}"
+        detected_type = detect_question_type(content, answer, question_no)
+        if qt_key not in st.session_state and detected_type:
+            st.session_state[qt_key] = detected_type
+        question_type_sel = st.selectbox("题型", options=type_options, key=qt_key)
+        question_type = None if question_type_sel == "（未选择）" else question_type_sel
+        if detected_type:
+            st.caption(f"💡 自动检测：{detected_type}（可修改）")
+
+        # 知识模块（多选，可空）
+        knowledge_modules = st.multiselect(
+            "知识模块",
+            options=KNOWLEDGE_MODULES,
+            key=f"upload_knowledge_modules_{key_suffix}",
+            placeholder="可多选",
+        )
+
         source = st.text_input("题目来源", key=f"upload_source_{key_suffix}")
         analysis_source = st.text_input("解析来源", key=f"upload_analysis_source_{key_suffix}")
 
@@ -108,7 +132,9 @@ def upload():
             analysis_source=analysis_source,
             year=year,
             paper_type=paper_type,
-            question_no=question_no
+            question_no=question_no,
+            question_type=question_type,
+            knowledge_modules=knowledge_modules,
         )
 
         st.session_state["update_qid"] = qid

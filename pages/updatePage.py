@@ -5,6 +5,12 @@ from utils.auth_utils import require_role
 from utils.render_utils import render_markdown
 from utils.multi_func import rich_markdown
 from services.question_services import update_question, get_question_by_id, move_to_recycle_bin
+from tools.exam_type_utils import (
+    QUESTION_TYPES,
+    KNOWLEDGE_MODULES,
+    detect_question_type,
+    str_to_knowledge_modules,
+)
 
 # =========================
 # 图片存储配置
@@ -58,6 +64,8 @@ def update():
             ori_year = qInfo["year"]
             ori_paper_type = qInfo["paper_type"]
             ori_question_no = qInfo["question_no"]
+            ori_question_type = qInfo["question_type"]
+            ori_knowledge_modules = str_to_knowledge_modules(qInfo["knowledge_modules"])
 
     if qid != None and qInfo:
         # =========================
@@ -92,6 +100,20 @@ def update():
             paper_type = st.text_input("卷种",
                 value=ori_paper_type)
             question_no = st.text_input("题号", value=ori_question_no)
+
+            # 题型
+            type_options = ["（未选择）"] + QUESTION_TYPES
+            ori_qt_idx = type_options.index(ori_question_type) if ori_question_type in type_options else 0
+            question_type_sel = st.selectbox("题型", options=type_options, index=ori_qt_idx)
+            question_type = None if question_type_sel == "（未选择）" else question_type_sel
+
+            # 知识模块
+            knowledge_modules = st.multiselect(
+                "知识模块",
+                options=KNOWLEDGE_MODULES,
+                default=ori_knowledge_modules,
+                placeholder="可多选",
+            )
 
             source = st.text_input("题目来源", value=ori_source)
             analysis_source = st.text_input("解析来源", value=ori_analysis_source)
@@ -137,7 +159,9 @@ def update():
                     analysis_source=analysis_source,
                     year=year,
                     paper_type=paper_type,
-                    question_no=question_no
+                    question_no=question_no,
+                    question_type=question_type,
+                    knowledge_modules=knowledge_modules,
                 )
 
                 st.success("🎉 试题上传成功")

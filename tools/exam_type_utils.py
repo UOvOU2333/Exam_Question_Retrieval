@@ -136,3 +136,64 @@ def get_new_textbook_sql_condition(year_param: str = "year", paper_type_param: s
         )
 
     return "(" + " OR ".join(conditions) + ")"
+
+
+# =====================
+# 知识模块与题型
+# =====================
+
+KNOWLEDGE_MODULES = [
+    "必修一", "必修二", "必修三", "必修四",
+    "选必一", "选必二", "选必三",
+]
+
+QUESTION_TYPES = ["选择题", "非选择题"]
+
+
+def detect_question_type(content, answer, question_no=None):
+    """
+    根据题目内容、答案、题号自动检测题型。
+
+    返回:
+        "选择题" / "非选择题" / None(无法确定，待人工)
+    """
+    if answer is None:
+        answer = ""
+    answer_stripped = answer.strip()
+
+    # 选择题特征：答案为纯字母组合（A-D），如 A / B / AB / ABCD
+    if answer_stripped and len(answer_stripped) <= 4 and all(c in "ABCDabcd" for c in answer_stripped):
+        return "选择题"
+
+    # 非选择题特征：答案较长（>10 字符）
+    if len(answer_stripped) > 10:
+        return "非选择题"
+
+    # 题号为中文数字（一、二、三…）通常是非选择题
+    if question_no and question_no.strip() in ("一", "二", "三", "四", "五", "六", "七", "八", "九", "十"):
+        return "非选择题"
+
+    # 题目以"阅读材料"开头通常是非选择题
+    if content and content.strip().startswith("阅读材料"):
+        return "非选择题"
+
+    # 答案含换行 / 评分表 / "分" 字通常是非选择题
+    if answer_stripped and ("\n" in answer_stripped or "|" in answer_stripped or "分" in answer_stripped):
+        return "非选择题"
+
+    # 无法确定
+    return None
+
+
+def knowledge_modules_to_str(modules):
+    """将知识模块列表转为逗号分隔的存储字符串。"""
+    if not modules:
+        return ""
+    return ",".join(modules)
+
+
+def str_to_knowledge_modules(s):
+    """将存储的逗号分隔字符串转为列表。"""
+    if not s:
+        return []
+    return [m for m in s.split(",") if m.strip()]

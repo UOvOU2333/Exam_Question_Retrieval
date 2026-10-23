@@ -6,6 +6,7 @@ from utils.render_utils import render_markdown
 from utils.note_utils import display_notes_list
 from services.question_services import search_questions, get_question_by_id, search_by_note
 from services.note_services import get_all_note_types
+from tools.exam_type_utils import QUESTION_TYPES, KNOWLEDGE_MODULES, str_to_knowledge_modules
 
 
 def search():
@@ -57,6 +58,21 @@ def search():
             question_no = st.text_input(
                 "题号",
                 placeholder="请输入题号"
+            )
+
+        col_qtype, col_km = st.columns([1, 2])
+        with col_qtype:
+            question_type_filter = st.selectbox(
+                "题型",
+                options=["（不限）"] + QUESTION_TYPES,
+                key="search_question_type",
+            )
+        with col_km:
+            knowledge_modules_filter = st.multiselect(
+                "知识模块",
+                options=KNOWLEDGE_MODULES,
+                placeholder="可多选",
+                key="search_knowledge_modules",
             )
 
         options_que = [
@@ -155,13 +171,17 @@ def search():
         field_que = "all"
         field_sou = "all"
         search_scope = "题目/答案/解析"
+        question_type_filter = "（不限）"
+        knowledge_modules_filter = []
 
     keyword = st.text_input(
         "关键词检索",
         placeholder="请输入关键词"
     )
 
-    if not paper_type.strip() and not question_no.strip() and not keyword.strip() and not years and not flag_new_textbook:
+    if (not paper_type.strip() and not question_no.strip() and not keyword.strip()
+            and not years and not flag_new_textbook and not knowledge_modules_filter
+            and question_type_filter == "（不限）"):
         st.info("请输入搜索条件开始检索")
         return
 
@@ -179,6 +199,8 @@ def search():
         search_scope="qa" if search_scope == "题目/答案/解析" else "source",
         no_fuzzy=flag_no,
         new_textbook_only=flag_new_textbook,
+        question_type=question_type_filter if question_type_filter != "（不限）" else None,
+        knowledge_modules=knowledge_modules_filter or None,
     )
     
     # 备注检索（如果有备注检索条件）
@@ -224,6 +246,8 @@ def search():
         year = q["year"]
         paper_type = q["paper_type"]
         question_no = q["question_no"]
+        q_type = q["question_type"]
+        q_km = q["knowledge_modules"]
 
         tip_parts = []
         if year:
@@ -232,6 +256,8 @@ def search():
             tip_parts.append(f"卷种：{paper_type}")
         if question_no:
             tip_parts.append(f"题号：{question_no}")
+        if q_type:
+            tip_parts.append(f"题型：{q_type}")
 
         tip_parts_in_que = []
         if year:
@@ -276,6 +302,8 @@ def search():
                 if question_no:
                     caption_parts.append(f"📑 题号：{question_no}")
                     
+            if q_km:
+                caption_parts.append(f"📚 知识模块：{q_km}")
             if source:
                 caption_parts.append(f"📌 来源：{source}")
             if analysis_source:
