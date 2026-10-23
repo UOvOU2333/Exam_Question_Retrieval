@@ -1,6 +1,10 @@
 import sqlite3
 
-from tools.exam_type_utils import get_new_textbook_sql_condition
+from tools.exam_type_utils import (
+    get_new_textbook_sql_condition,
+    detect_question_type,
+    knowledge_modules_to_str,
+)
 
 DB_PATH = "data/questions.db"
 
@@ -12,14 +16,19 @@ def get_conn():
 # =====================
 # 创建题目（上传）
 # =====================
-def create_question(content, answer, analysis, source, analysis_source, year, paper_type, question_no):
+def create_question(content, answer, analysis, source, analysis_source, year, paper_type, question_no,
+                    question_type=None, knowledge_modules=None):
     conn = get_conn()
     cur = conn.cursor()
 
+    km_str = knowledge_modules_to_str(knowledge_modules)
+
     cur.execute("""INSERT INTO questions
-        (content, answer, analysis, source, analysis_source, year, paper_type, question_no)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (content, answer, analysis, source, analysis_source, year, paper_type, question_no))
+        (content, answer, analysis, source, analysis_source, year, paper_type, question_no,
+         question_type, knowledge_modules)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (content, answer, analysis, source, analysis_source, year, paper_type, question_no,
+          question_type, km_str))
 
     qid = cur.lastrowid
     conn.commit()
@@ -40,6 +49,8 @@ def search_questions(
     search_scope: str = "qa",   # "qa" 或 "source"
     no_fuzzy: bool = False,
     new_textbook_only: bool = False,
+    question_type: str | None = None,
+    knowledge_modules: list | None = None,
 ):
     conn = get_conn()
     conn.row_factory = sqlite3.Row
@@ -47,7 +58,7 @@ def search_questions(
 
     base_sql = """
         SELECT questionID, content, answer, analysis, source, analysis_source,
-               year, paper_type, question_no
+               year, paper_type, question_no, question_type, knowledge_modules
         FROM questions 
     """
 
@@ -121,6 +132,19 @@ def search_questions(
     if new_textbook_only:
         conditions.append(get_new_textbook_sql_condition())
 
+    # 题型筛选
+    if question_type:
+        conditions.append("question_type = ?")
+        params.append(question_type)
+
+    # 知识模块筛选（多选，模块名互不包含，LIKE 安全）
+    if knowledge_modules:
+        km_conditions = []
+        for km in knowledge_modules:
+            km_conditions.append("knowledge_modules LIKE ?")
+            params.append(f"%{km}%")
+        conditions.append("(" + " OR ".join(km_conditions) + ")")
+
     # 构建最终 SQL
     sql = base_sql
     if conditions:
@@ -144,7 +168,8 @@ def get_question_by_id(qid):
 
     cur.execute("""
         SELECT questionID, content, answer, analysis, source, analysis_source,
-               year, paper_type, question_no, isInRecycleBin
+               year, paper_type, question_no, isInRecycleBin,
+               question_type, knowledge_modules
         FROM questions
         WHERE questionID = ?
     """, (qid,))
@@ -157,9 +182,12 @@ def get_question_by_id(qid):
 # =====================
 # 更新单题
 # =====================
-def update_question(qid, content, answer, analysis, source, analysis_source, year, paper_type, question_no):
+def update_question(qid, content, answer, analysis, source, analysis_source, year, paper_type, question_no,
+                    question_type=None, knowledge_modules=None):
     conn = get_conn()
     cur = conn.cursor()
+
+    km_str = knowledge_modules_to_str(knowledge_modules)
 
     cur.execute("""
     UPDATE questions SET 
@@ -170,7 +198,9 @@ def update_question(qid, content, answer, analysis, source, analysis_source, yea
         analysis_source = ?,
         year = ?,
         paper_type = ?,
-        question_no = ?
+        question_no = ?,
+        question_type = ?,
+        knowledge_modules = ?
     WHERE questionID = ?  
     """, (
         content,
@@ -181,6 +211,8 @@ def update_question(qid, content, answer, analysis, source, analysis_source, yea
         year,
         paper_type,
         question_no,
+        question_type,
+        km_str,
         qid
     ))
 
@@ -188,6 +220,38 @@ def update_question(qid, content, answer, analysis, source, analysis_source, yea
     conn.close()
 
     return qid
+
+
+# =====================
+# 批量自动检测并回填题型（仅回填当前为空的题目）
+# =====================
+def batch_detect_and_fill_question_type():
+    conn = get_conn()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT questionID, content, answer, question_no, question_type
+        FROM questions
+        WHERE isInRecycleBin = 0 AND (question_type IS NULL OR question_type = '')
+    """)
+    rows = cur.fetchall()
+
+    stats = {"选择题": 0, "非选择题": 0, "跳过": 0}
+    for row in rows:
+        qtype = detect_question_type(row["content"], row["answer"], row["question_no"])
+        if qtype:
+            cur.execute(
+                "UPDATE questions SET question_type = ? WHERE questionID = ?",
+                (qtype, row["questionID"]),
+            )
+            stats[qtype] += 1
+        else:
+            stats["跳过"] += 1
+
+    conn.commit()
+    conn.close()
+    return stats
 
 
 # =====================
