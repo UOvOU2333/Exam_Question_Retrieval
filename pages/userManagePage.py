@@ -2,7 +2,8 @@
 import streamlit as st
 import hashlib
 
-from utils.auth_utils import require_role
+from utils.auth_utils import require_permission
+from utils.permissions import ALL_ROLES, ROLE_NAMES, is_admin
 from services.user_services import (
     get_all_users,
     create_user,
@@ -20,7 +21,7 @@ def hash_password(password: str) -> str:
 
 def user_manage():
     # ===== 权限校验 =====
-    require_role("admin")
+    require_permission("user_manage")
 
     st.title("用户管理")
     st.caption(f"当前用户：{st.session_state['username']}")
@@ -44,14 +45,14 @@ def user_manage():
 
             if users:
                 for uid, uname, urole, _ in users:
-                    is_admin = urole == "admin"
-                    enabled = is_admin or uid in ai_whitelist
+                    user_is_admin = is_admin(urole)
+                    enabled = user_is_admin or uid in ai_whitelist
                     c1, c2, c3, c4, c5 = st.columns([1, 2, 2, 2, 3])
                     c1.write(uid)
                     c2.markdown(f"**{uname}**")
-                    c3.write(urole)
+                    c3.write(ROLE_NAMES.get(urole, urole))
                     with c4:
-                        if is_admin:
+                        if user_is_admin:
                             st.markdown("自动授权")
                         elif enabled:
                             if st.button("移除授权", key=f"ai_rm_{uid}", type="secondary"):
@@ -79,7 +80,7 @@ def user_manage():
     with st.form("add_user_form"):
         new_username = st.text_input("用户名")
         new_password = st.text_input("初始密码", type="password")
-        new_role = st.selectbox("角色", ["admin", "editor", "viewer"])
+        new_role = st.selectbox("角色", list(ALL_ROLES), format_func=lambda r: ROLE_NAMES.get(r, r))
 
         submitted = st.form_submit_button("创建用户")
 
@@ -109,7 +110,7 @@ def user_manage():
             selected_id = st.selectbox("选择用户 ID", user_ids, index=default_idx)
             selected_user = user_map[selected_id]
             sel_uid, sel_uname, sel_urole, _ = selected_user
-            sel_is_admin = sel_urole == "admin"
+            sel_is_admin = is_admin(sel_urole)
             sel_enabled = sel_is_admin or sel_uid in ai_whitelist
             if sel_is_admin:
                 sel_ai_label = "自动授权"
@@ -121,7 +122,7 @@ def user_manage():
             c_info, c_act = st.columns([3, 2])
             with c_info:
                 st.markdown(f"**用户名：** {sel_uname}")
-                st.markdown(f"**角色：** {sel_urole}")
+                st.markdown(f"**角色：** {ROLE_NAMES.get(sel_urole, sel_urole)}")
             with c_act:
                 if sel_is_admin:
                     st.info("管理员自动授权")
@@ -136,8 +137,9 @@ def user_manage():
 
             new_role = st.selectbox(
                 "修改角色",
-                ["admin", "editor", "viewer"],
-                index=["admin", "editor", "viewer"].index(sel_urole)
+                list(ALL_ROLES),
+                index=list(ALL_ROLES).index(sel_urole),
+                format_func=lambda r: ROLE_NAMES.get(r, r),
             )
 
             if st.button("更新角色", type="primary"):

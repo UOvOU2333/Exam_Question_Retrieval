@@ -15,15 +15,12 @@ from chains.loger import trace
 import sqlite3
 import urllib.parse
 
-# ---------- 权限辅助函数 ----------
-def _check_read_permission(role: str) -> bool:
-    return role in ("viewer", "editor", "admin")
-
-def _check_write_permission(role: str) -> bool:
-    return role in ("editor", "admin")
-
-def _check_admin_permission(role: str) -> bool:
-    return role == "admin"
+# ---------- 权限辅助函数（统一定义于 utils.permissions） ----------
+from utils.permissions import (
+    can_view_analysis as _check_read_permission,
+    can_write as _check_write_permission,
+    is_admin as _check_admin_permission,
+)
 
 # ---------- 工具1：搜索题目 ----------
 @tool
@@ -41,7 +38,7 @@ def search_questions_tool(
     根据卷种、题号、关键词、年份等条件搜索题目。
     new_textbook_only: 仅搜索新教材题目（True=仅新教材，False=不限）。
     返回匹配题目的 ID 列表及简要信息（需进一步调用 get_question_tool 获取详情）。
-    权限：viewer / editor / admin
+    权限：viewer / advancer / editor / admin
     """
 
     # ========== 智能参数规范化（处理 LLM 常见错误） ==========
@@ -99,7 +96,7 @@ def search_questions_tool(
           f"paper_type={paper_type}, question_no={question_no}, keyword={keyword}, years={years}, search_scope={search_scope}, new_textbook_only={new_textbook_only}")
 
     if not _check_read_permission(role):
-        return "错误：您没有查看题目的权限（需要 viewer / editor / admin 角色）"
+        return "错误：您没有查看题目的权限（需要 viewer / advancer / editor / admin 角色）"
 
     try:
         qids = search_questions(
@@ -139,13 +136,13 @@ def search_questions_tool(
 def get_question_tool(question_id: int, user_id: int = None, role: str = None) -> str:
     """
     根据题目ID获取完整信息（题目、答案、解析、来源、年份、卷种、题号）。
-    权限：viewer / editor / admin
+    权限：viewer / advancer / editor / admin
     """
 
     trace("QuestionTools", f"{role} {user_id} Get", f"question_id={question_id}")
 
     if not _check_read_permission(role):
-        return "错误：您没有查看题目的权限（需要 viewer / editor / admin 角色）"
+        return "错误：您没有查看题目的权限（需要 viewer / advancer / editor / admin 角色）"
 
     try:
         q = get_question_by_id(question_id)
@@ -393,16 +390,16 @@ def search_question_by_note_tool(
 ) -> str:
     """
     根据笔记的标签ID、笔记内容关键词、笔记创建人（用户名）搜索关联的题目。
-    权限：viewer / editor / admin
+    权限：viewer / advancer / editor / admin
     """
 
     trace("QuestionTools", f"{role} {user_id} SearchByNote", f"type_id={type_id}, content_keyword={content_keyword}, created_by={created_by}")
 
     if not _check_read_permission(role):
-        return "错误：您没有查看笔记的权限（需要 viewer / editor / admin 角色）"
+        return "错误：您没有查看笔记的权限（需要 viewer / advancer / editor / admin 角色）"
 
     try:
-        _visible_ids = None if (not role or role == "admin") else get_visible_note_type_ids(role)
+        _visible_ids = None if (not role or _check_admin_permission(role)) else get_visible_note_type_ids(role)
         qids = search_by_note(
             type_id=type_id,
             content=content_keyword,

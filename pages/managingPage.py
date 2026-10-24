@@ -10,6 +10,7 @@ from pages.noteTypeManagingPage import note_type_management
 from pages.exportPage import export
 from pages.paperTypeBatchChangePage import paper_type_batch_change
 from utils.navbar_utils import navbar, info_update
+from utils.auth_utils import check_permission
 
 
 st.set_page_config(
@@ -43,40 +44,43 @@ def main():
         login()
 
     elif selected == '试题上传':
-        if st.session_state.get("role") not in ("admin", "editor"):
+        if not check_permission("upload"):
             st.error("无权限访问")
         else:
             upload()
-    
+
     elif selected == '试题更新':
-        if st.session_state.get("role") not in ("admin", "editor"):
+        if not check_permission("update"):
             st.error("无权限访问")
         else:
             update()
 
     elif selected == '试卷导出':
-        export()
+        if not check_permission("export"):
+            st.error("无权限访问")
+        else:
+            export()
 
     elif selected == '卷种变更':
-        if st.session_state.get("role") != "admin":
+        if not check_permission("paper_type_change"):
             st.error("无权限访问")
         else:
             paper_type_batch_change()
 
     elif selected == '用户管理':
-        if st.session_state.get("role") != "admin":
+        if not check_permission("user_manage"):
             st.error("无权限访问")
         else:
             user_manage()
 
     elif selected == '备注管理':
-        if st.session_state.get("role") != "admin":
+        if not check_permission("note_type_manage"):
             st.error("无权限访问")
         else:
             note_type_management()
 
     elif selected == '回收站':
-        if st.session_state.get("role") not in ("admin", "editor"):
+        if not check_permission("recycle_bin"):
             st.error("无权限访问")
         else:
             recycle_bin()

@@ -1,10 +1,13 @@
 import sqlite3
 from datetime import datetime
 
-DB_PATH = "data/questions.db"
+from utils.permissions import (
+    ALL_ROLES,
+    DEFAULT_VISIBLE_ROLES,
+    is_admin,
+)
 
-ALL_ROLES = ("admin", "editor", "viewer")
-DEFAULT_VISIBLE_ROLES = "admin,editor,viewer"
+DB_PATH = "data/questions.db"
 
 
 def get_conn():
@@ -36,7 +39,7 @@ def can_view_note_type(type_id, role):
     判断指定角色能否查看某类型备注。
     admin 始终可见；visible_roles 为空/NULL 视为全可见；否则要求 role 在 visible_roles 中。
     """
-    if role == "admin":
+    if is_admin(role):
         return True
     conn = get_conn()
     conn.row_factory = sqlite3.Row
@@ -60,7 +63,7 @@ def get_visible_note_type_ids(role, include_deleted=False):
     conn = get_conn()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    if role == "admin":
+    if is_admin(role):
         if include_deleted:
             cur.execute("SELECT id FROM note_types ORDER BY id")
         else:
@@ -309,7 +312,7 @@ def get_question_notes(question_id, viewer_role=None):
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    if viewer_role is None or viewer_role == "admin":
+    if viewer_role is None or is_admin(viewer_role):
         cur.execute("""
             SELECT qn.*, nt.type_name, nt.visible_roles
             FROM question_notes qn

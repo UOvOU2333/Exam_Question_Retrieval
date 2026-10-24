@@ -15,7 +15,7 @@ from datetime import datetime
 
 DB_PATH = "data/questions.db"
 
-DEFAULT_VISIBLE_ROLES = "admin,editor,viewer"
+DEFAULT_VISIBLE_ROLES = "experiencer,viewer,advancer,editor,admin"
 
 
 def main():

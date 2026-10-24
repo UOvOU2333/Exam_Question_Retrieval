@@ -9,6 +9,7 @@ from services.user_services import (
     update_username,
     update_password,
 )
+from utils.permissions import ROLE_NAMES, ROLE_PERMISSION_INFO
 
 
 # ========== 登录页 / 用户主页 ==========
@@ -56,17 +57,8 @@ def show_dashboard():
 
     st.success(f"欢迎你，{username}")
 
-    info = "查看试题"
-    # ===== 权限提示（单独一行）=====
-    if role == "admin":
-        info = "管理用户、管理试题"
-    elif role == "editor":
-        info = "管理试题"
-    elif role == "viewer":
-        info = "查看试题"
-
-    role_names = {"admin": "管理员", "editor": "编辑员", "viewer": "普通用户"}
-    role_cn = role_names.get(role, role)
+    info = ROLE_PERMISSION_INFO.get(role, "查看试题")
+    role_cn = ROLE_NAMES.get(role, role)
     ai_ok = is_ai_enabled(st.session_state.get("user_id"))
     ai_text = "可使用" if ai_ok else "未授权"
     left, mid, right = st.columns([1, 2, 1])

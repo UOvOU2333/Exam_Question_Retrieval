@@ -2,6 +2,8 @@ import sqlite3
 import hashlib
 from datetime import datetime
 
+from utils.permissions import is_admin
+
 DB_PATH = "./data/questions.db"
 
 
@@ -214,7 +216,7 @@ def is_ai_enabled(user_id) -> bool:
     cur = conn.cursor()
     cur.execute("SELECT role FROM users WHERE id = ? AND is_deleted = 0", (user_id,))
     row = cur.fetchone()
-    if row and row[0] == "admin":
+    if row and is_admin(row[0]):
         conn.close()
         return True
     cur.execute("SELECT 1 FROM ai_whitelist WHERE user_id = ?", (user_id,))

@@ -3,14 +3,14 @@ import streamlit_antd_components as sac
 
 from services.question_services import get_question_by_id
 from services.recycleBin_services import get_questions_in_recycle_bin, restore_the_question, delete_question
-from utils.auth_utils import require_role, check_role
+from utils.auth_utils import check_permission, require_permission
 from utils.note_utils import display_notes_list
 from utils.render_utils import render_markdown
 
 
 def recycle_bin():
     # ===== 权限校验 =====
-    require_role("editor", "admin")
+    require_permission("recycle_bin")
 
     if "show_delete_total_dialog" not in st.session_state:
         st.session_state.show_delete_total_dialog = False
@@ -75,7 +75,7 @@ def recycle_bin():
 
             display_notes_list(qid)
 
-            if check_role("admin", "editor"):
+            if check_permission("recycle_bin"):
                 col1, col2, col3 = st.columns([3, 1, 1])  # 使用三列布局，左侧和右侧放按钮
 
                 with col1:

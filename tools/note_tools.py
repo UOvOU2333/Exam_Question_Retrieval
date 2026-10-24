@@ -18,15 +18,12 @@ from services.user_services import get_user_by_id
 from chains.loger import trace
 import sqlite3
 
-# ---------- 权限辅助函数（同 question_tools） ----------
-def _check_read_permission(role: str) -> bool:
-    return role in ("viewer", "editor", "admin")
-
-def _check_write_permission(role: str) -> bool:
-    return role in ("editor", "admin")
-
-def _check_admin_permission(role: str) -> bool:
-    return role == "admin"
+# ---------- 权限辅助函数（统一定义于 utils.permissions） ----------
+from utils.permissions import (
+    can_view_analysis as _check_read_permission,
+    can_write as _check_write_permission,
+    is_admin as _check_admin_permission,
+)
 
 # ---------- 辅助函数：将 sqlite3.Row 或 Row 列表转换为字典 ----------
 def _row_to_dict(row):
@@ -238,20 +235,20 @@ def get_note_types_tool(
 ) -> str:
     """
     获取所有笔记类型列表（默认只显示未删除的）。
-    权限：viewer / editor / admin
+    权限：viewer / advancer / editor / admin
     """
 
     trace("NoteTools", f"{role} {user_id} GetNoteTypes", f"include_deleted={include_deleted}")
 
     if not _check_read_permission(role):
-        return "错误：您没有查看笔记类型的权限（需要 viewer / editor / admin 角色）"
+        return "错误：您没有查看笔记类型的权限（需要 viewer / advancer / editor / admin 角色）"
 
     try:
         types = get_all_note_types(include_deleted=include_deleted)
         # 转换为字典列表，避免 sqlite3.Row 不支持 .get()
         types = _rows_to_dict_list(types)
         # 按可见范围过滤（admin 全可见）
-        if role != "admin":
+        if not _check_admin_permission(role):
             visible_ids = set(get_visible_note_type_ids(role, include_deleted=include_deleted))
             types = [t for t in types if t['id'] in visible_ids]
         if not types:
@@ -278,13 +275,13 @@ def get_question_notes_tool(
 ) -> str:
     """
     获取指定题目下的所有笔记（未删除的）。
-    权限：viewer / editor / admin
+    权限：viewer / advancer / editor / admin
     """
 
     trace("NoteTools", f"{role} {user_id} GetQuestionNotes", f"question_id={question_id}")
 
     if not _check_read_permission(role):
-        return "错误：您没有查看笔记的权限（需要 viewer / editor / admin 角色）"
+        return "错误：您没有查看笔记的权限（需要 viewer / advancer / editor / admin 角色）"
 
     try:
         notes = get_question_notes(question_id, viewer_role=role)

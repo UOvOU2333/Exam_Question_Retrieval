@@ -6,12 +6,12 @@ from services.question_services import (
     get_paper_type_distribution,
     batch_change_paper_type,
 )
-from utils.auth_utils import require_role
+from utils.auth_utils import require_permission
 
 
 def paper_type_batch_change():
     # ===== 权限校验 =====
-    require_role("admin")
+    require_permission("paper_type_change")
 
     if "show_change_dialog" not in st.session_state:
         st.session_state.show_change_dialog = False

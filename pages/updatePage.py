@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 
-from utils.auth_utils import require_role
+from utils.auth_utils import check_permission, require_permission
 from utils.render_utils import render_markdown
 from utils.multi_func import rich_markdown
 from services.question_services import update_question, get_question_by_id, move_to_recycle_bin
@@ -21,7 +21,7 @@ os.makedirs(IMAGE_DIR, exist_ok=True)
 
 def update():
     # ===== 权限校验 =====
-    require_role("admin", "editor")
+    require_permission("update")
 
     if "show_delete_dialog" not in st.session_state:
         st.session_state.show_delete_dialog = False
@@ -178,7 +178,7 @@ def update():
             # ==================
             if st.button("删除试题",
                          type="secondary",
-                         disabled=(role != "admin")):
+                         disabled=not check_permission("delete")):
                 st.session_state.show_delete_dialog = True
 
         # =========================

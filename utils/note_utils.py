@@ -3,7 +3,8 @@ import pandas as pd
 
 from services.note_services import *
 from services.user_services import get_user_by_id
-from utils.auth_utils import check_role
+from utils.auth_utils import check_permission
+from utils.permissions import is_admin, ROLE_NAMES
 from utils.render_utils import render_markdown
 
 
@@ -122,7 +123,7 @@ def display_notes_list(question_id):
                 render_markdown(note['content'])
 
                 # 删除操作藏进危险操作 expander，防止误触
-                if check_role("admin", "editor"):
+                if check_permission("update"):
                     with st.expander("危险操作", expanded=False):
                         if st.button(
                             "删除该备注",
@@ -192,17 +193,16 @@ def note_type_selector_component():
             df['可见范围'] = df['visible_roles'].apply(
                 lambda x: '全部' if not x else x
             )
+            df['更新时间'] = df['updated_at'].fillna(df['created_at'])
 
             # 显示数据表
             st.dataframe(
-                df[['type_name', '状态', '可见范围', '创建人', 'created_at', 'updated_at']],
+                df[['type_name', '状态', '可见范围', '更新时间']],
                 column_config={
                     "type_name": "类型名称",
                     "状态": "状态",
                     "可见范围": "可见范围",
-                    "创建人": "创建人",
-                    "created_at": "创建时间",
-                    "updated_at": "更新时间"
+                    "更新时间": "更新时间"
                 },
                 width='stretch',
                 hide_index=True
@@ -249,8 +249,9 @@ def note_type_selector_component():
                 "可见角色",
                 options=list(ALL_ROLES),
                 default=list(ALL_ROLES),
+                format_func=lambda r: ROLE_NAMES.get(r, r),
                 key="new_type_visible_roles",
-                help="勾选可查看该类型备注的角色，admin 始终可见"
+                help="勾选可查看该类型备注的角色，管理员始终可见"
             )
             
             if "user_id" in st.session_state:
@@ -330,8 +331,9 @@ def note_type_selector_component():
                             "可见角色",
                             options=list(ALL_ROLES),
                             default=[r for r in ALL_ROLES if r in current_vroles],
+                            format_func=lambda r: ROLE_NAMES.get(r, r),
                             key="edit_type_visible_roles",
-                            help="勾选可查看该类型备注的角色，admin 始终可见"
+                            help="勾选可查看该类型备注的角色，管理员始终可见"
                         )
                         if "user_id" in st.session_state:
                             updater_id = st.session_state.get("user_id")
@@ -447,7 +449,7 @@ def compact_note_type_selector():
     # 获取类型并按当前用户可见范围过滤
     all_types = get_all_note_types()
     viewer_role = st.session_state.get("role")
-    if viewer_role and viewer_role != "admin":
+    if viewer_role and not is_admin(viewer_role):
         visible_ids = set(get_visible_note_type_ids(viewer_role))
         all_types = [t for t in all_types if t['id'] in visible_ids]
     types_dict = {t['type_name']: t['id'] for t in all_types} if all_types else {}
@@ -470,6 +472,7 @@ def compact_note_type_selector():
             new_name = st.text_input("新增类型", placeholder="输入新增类型名称", label_visibility="collapsed")
             new_vroles = st.multiselect(
                 "可见角色", options=list(ALL_ROLES), default=list(ALL_ROLES),
+                format_func=lambda r: ROLE_NAMES.get(r, r),
                 key="quick_add_vroles_empty"
             )
             if st.form_submit_button("添加", width='stretch', type='primary'):
@@ -491,6 +494,7 @@ def compact_note_type_selector():
                 new_name = st.text_input("新增类型", placeholder="输入新增类型名称", label_visibility="collapsed")
                 new_vroles = st.multiselect(
                     "可见角色", options=list(ALL_ROLES), default=list(ALL_ROLES),
+                    format_func=lambda r: ROLE_NAMES.get(r, r),
                     key="quick_add_vroles"
                 )
                 if st.form_submit_button("添加", width='stretch', type='primary'):
@@ -520,6 +524,7 @@ def compact_note_type_selector():
                 edit_vroles = st.multiselect(
                     "可见角色", options=list(ALL_ROLES),
                     default=[r for r in ALL_ROLES if r in sel_vroles],
+                    format_func=lambda r: ROLE_NAMES.get(r, r),
                     key="update_type_vroles_compact"
                 )
                 if "user_id" in st.session_state:

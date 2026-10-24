@@ -2,7 +2,7 @@ import os
 import re
 import streamlit as st
 
-from utils.auth_utils import require_role
+from utils.auth_utils import require_permission
 from utils.render_utils import render_markdown
 from utils.multi_func import rich_markdown
 from services.question_services import create_question
@@ -31,7 +31,7 @@ def increment_number_in_string(s):
 
 def upload():
     # ===== 权限校验 =====
-    require_role("editor", "admin")
+    require_permission("upload")
 
     st.title("试题上传")
 
