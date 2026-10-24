@@ -1,7 +1,14 @@
 # authPage.py
 import streamlit as st
 
-from services.user_services import authenticate, is_ai_enabled
+from services.user_services import (
+    authenticate,
+    is_ai_enabled,
+    verify_password,
+    is_username_taken,
+    update_username,
+    update_password,
+)
 
 
 # ========== 登录页 / 用户主页 ==========
@@ -70,8 +77,63 @@ def show_dashboard():
     with right:
         st.info(f"智能助手：**{ai_text}**")
 
+    # ===== 用户信息管理 =====
+    show_account_settings()
+
     # ===== 退出 =====
     if st.button("退出登录"):
         for k in ["logged_in", "username", "role"]:
             st.session_state.pop(k, None)
         st.rerun()
+
+
+# ========== 用户信息自助管理 ==========
+def show_account_settings():
+    user_id = st.session_state.get("user_id")
+    username = st.session_state.get("username")
+
+    with st.expander("账号设置", expanded=False):
+        left, right = st.columns(2)
+        with left:
+            # ----- 修改用户名 -----
+            with st.form("change_username_form"):
+                st.subheader("修改用户名")
+                new_username = st.text_input("新用户名", value=username)
+                cur_pwd_for_name = st.text_input("当前密码（验证身份）", type="password", key="pwd_for_username")
+                name_submitted = st.form_submit_button("保存用户名", use_container_width=True)
+
+            if name_submitted:
+                if not new_username.strip():
+                    st.error("用户名不能为空")
+                elif new_username.strip() == username:
+                    st.warning("新用户名与当前相同")
+                elif not verify_password(user_id, cur_pwd_for_name):
+                    st.error("当前密码不正确")
+                elif is_username_taken(new_username.strip(), exclude_user_id=user_id):
+                    st.error("该用户名已被占用，请换一个")
+                else:
+                    update_username(user_id, new_username.strip())
+                    st.session_state["username"] = new_username.strip()
+                    st.success("用户名修改成功")
+                    st.rerun()
+        with right:
+            # ----- 修改密码 -----
+            with st.form("change_password_form"):
+                st.subheader("修改密码")
+                cur_pwd = st.text_input("当前密码", type="password", key="pwd_cur")
+                new_pwd = st.text_input("新密码", type="password", key="pwd_new")
+                confirm_pwd = st.text_input("确认新密码", type="password", key="pwd_confirm")
+                pwd_submitted = st.form_submit_button("保存密码", use_container_width=True)
+
+            if pwd_submitted:
+                if not verify_password(user_id, cur_pwd):
+                    st.error("当前密码不正确")
+                elif not new_pwd:
+                    st.error("新密码不能为空")
+                elif new_pwd != confirm_pwd:
+                    st.error("两次输入的新密码不一致")
+                elif new_pwd == cur_pwd:
+                    st.warning("新密码不能与当前密码相同")
+                else:
+                    update_password(user_id, new_pwd)
+                    st.success("密码修改成功")
