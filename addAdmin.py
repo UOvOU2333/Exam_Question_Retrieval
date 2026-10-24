@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
-    role TEXT NOT NULL,          -- admin / editor / viewer
+    role TEXT NOT NULL,          -- experiencer / viewer / advancer / editor / admin
     created_at TEXT
 );
 

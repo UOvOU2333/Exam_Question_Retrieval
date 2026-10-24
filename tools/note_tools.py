@@ -12,20 +12,18 @@ from services.note_services import (
     get_question_notes,
     create_question_note,
     soft_delete_question_note,
+    get_visible_note_type_ids,
 )
 from services.user_services import get_user_by_id
 from chains.loger import trace
 import sqlite3
 
-# ---------- 权限辅助函数（同 question_tools） ----------
-def _check_read_permission(role: str) -> bool:
-    return role in ("viewer", "editor", "admin")
-
-def _check_write_permission(role: str) -> bool:
-    return role in ("editor", "admin")
-
-def _check_admin_permission(role: str) -> bool:
-    return role == "admin"
+# ---------- 权限辅助函数（统一定义于 utils.permissions） ----------
+from utils.permissions import (
+    can_view_analysis as _check_read_permission,
+    can_write as _check_write_permission,
+    is_admin as _check_admin_permission,
+)
 
 # ---------- 辅助函数：将 sqlite3.Row 或 Row 列表转换为字典 ----------
 def _row_to_dict(row):
@@ -47,12 +45,14 @@ def _rows_to_dict_list(rows):
 def create_note_type_tool(
     type_name: str,
     created_by: int,
+    visible_roles: str = None,
     user_id: int = None,
     role: str = None,
 ) -> str:
     """
     创建一个新的笔记类型（标签）。
     权限：editor / admin
+    :param visible_roles: 可见角色，逗号分隔（如 "admin,editor"），默认全部角色可见
     """
 
     # ========== 自动解包 LLM 错误传入的字典 ==========
@@ -77,7 +77,7 @@ def create_note_type_tool(
         return "错误：您没有创建笔记类型的权限（需要 editor 或 admin 角色）"
 
     try:
-        type_id = create_note_type(name=type_name, created_by=created_by)
+        type_id = create_note_type(name=type_name, created_by=created_by, visible_roles=visible_roles)
         if type_id:
             trace("NoteTools", f"{role} {user_id} CreateNoteType Result", f"success: type_id={type_id}")
             return f"笔记类型 '{type_name}' 创建成功，ID = {type_id}。"
@@ -235,18 +235,22 @@ def get_note_types_tool(
 ) -> str:
     """
     获取所有笔记类型列表（默认只显示未删除的）。
-    权限：viewer / editor / admin
+    权限：viewer / advancer / editor / admin
     """
 
     trace("NoteTools", f"{role} {user_id} GetNoteTypes", f"include_deleted={include_deleted}")
 
     if not _check_read_permission(role):
-        return "错误：您没有查看笔记类型的权限（需要 viewer / editor / admin 角色）"
+        return "错误：您没有查看笔记类型的权限（需要 viewer / advancer / editor / admin 角色）"
 
     try:
         types = get_all_note_types(include_deleted=include_deleted)
         # 转换为字典列表，避免 sqlite3.Row 不支持 .get()
         types = _rows_to_dict_list(types)
+        # 按可见范围过滤（admin 全可见）
+        if not _check_admin_permission(role):
+            visible_ids = set(get_visible_note_type_ids(role, include_deleted=include_deleted))
+            types = [t for t in types if t['id'] in visible_ids]
         if not types:
             trace("NoteTools", f"{role} {user_id} GetNoteTypes Result", "no types found")
             return "未找到任何笔记类型。"
@@ -271,16 +275,16 @@ def get_question_notes_tool(
 ) -> str:
     """
     获取指定题目下的所有笔记（未删除的）。
-    权限：viewer / editor / admin
+    权限：viewer / advancer / editor / admin
     """
 
     trace("NoteTools", f"{role} {user_id} GetQuestionNotes", f"question_id={question_id}")
 
     if not _check_read_permission(role):
-        return "错误：您没有查看笔记的权限（需要 viewer / editor / admin 角色）"
+        return "错误：您没有查看笔记的权限（需要 viewer / advancer / editor / admin 角色）"
 
     try:
-        notes = get_question_notes(question_id)
+        notes = get_question_notes(question_id, viewer_role=role)
         # 转换为字典列表，避免 sqlite3.Row 不支持 .get()
         notes = _rows_to_dict_list(notes)
         if not notes:

@@ -3,7 +3,8 @@ import pandas as pd
 
 from services.note_services import *
 from services.user_services import get_user_by_id
-from utils.auth_utils import check_role
+from utils.auth_utils import check_permission
+from utils.permissions import is_admin, ROLE_NAMES
 from utils.render_utils import render_markdown
 
 
@@ -94,12 +95,13 @@ def add_note_component(question_id, selected_type_id):
 
 def display_notes_list(question_id):
     """
-    显示题目的备注列表
+    显示题目的备注列表（按当前用户角色做可见范围过滤）
     """
     st.subheader("备注列表")
     
-    # 获取该题目的所有备注
-    notes = get_question_notes(question_id)
+    # 获取该题目的所有备注（传入当前用户角色做权限过滤）
+    viewer_role = st.session_state.get("role")
+    notes = get_question_notes(question_id, viewer_role=viewer_role)
     
     # 显示备注列表
     if not notes:
@@ -117,20 +119,23 @@ def display_notes_list(question_id):
                     user = get_user_by_id(note['created_by'])
                     user_name = user[1] if user else "未知用户"
                     st.caption(f"🙎 {user_name} (ID:{note['created_by']})")
-                if check_role("admin", "editor"):
-                    with col4:
-                        # 操作按钮
-                        if st.button("删除", key=f"del_note_{note['note_id']}", help="删除", use_container_width=True):
+
+                render_markdown(note['content'])
+
+                # 删除操作藏进危险操作 expander，防止误触
+                if check_permission("update"):
+                    with st.expander("危险操作", expanded=False):
+                        if st.button(
+                            "删除该备注",
+                            key=f"del_note_{note['note_id']}",
+                            type="primary",
+                            use_container_width=True,
+                        ):
                             if soft_delete_question_note(note['note_id'], st.session_state.get("user_id", 1)):
                                 st.success("删除成功")
                                 st.rerun()
                             else:
                                 st.error("删除失败")
-                
-                # 备注内容
-                render_markdown(note['content'])
-                
-                # 如果被编辑过，显示编辑信息
 
 
 def note_type_selector_component():
@@ -185,16 +190,19 @@ def note_type_selector_component():
             # 添加状态列
             df['状态'] = df['is_deleted'].apply(lambda x: '已删除' if x else '正常')
             df['创建人'] = df['created_by'].apply(lambda x: get_user_by_id(x)[1])
+            df['可见范围'] = df['visible_roles'].apply(
+                lambda x: '全部' if not x else x
+            )
+            df['更新时间'] = df['updated_at'].fillna(df['created_at'])
 
             # 显示数据表
             st.dataframe(
-                df[['type_name', '状态', '创建人', 'created_at', 'updated_at']],
+                df[['type_name', '状态', '可见范围', '更新时间']],
                 column_config={
                     "type_name": "类型名称",
                     "状态": "状态",
-                    "创建人": "创建人",
-                    "created_at": "创建时间",
-                    "updated_at": "更新时间"
+                    "可见范围": "可见范围",
+                    "更新时间": "更新时间"
                 },
                 width='stretch',
                 hide_index=True
@@ -237,6 +245,14 @@ def note_type_selector_component():
                 placeholder="例如: 知识模块",
                 key="new_type_name_input"
             )
+            new_visible_roles = st.multiselect(
+                "可见角色",
+                options=list(ALL_ROLES),
+                default=list(ALL_ROLES),
+                format_func=lambda r: ROLE_NAMES.get(r, r),
+                key="new_type_visible_roles",
+                help="勾选可查看该类型备注的角色，管理员始终可见"
+            )
             
             if "user_id" in st.session_state:
                 current_user_id = st.session_state.get("user_id")
@@ -253,7 +269,10 @@ def note_type_selector_component():
             if submitted:
                 if new_type_name:
                     with st.spinner("正在添加..."):
-                        new_id = create_note_type(new_type_name, current_user_id)
+                        new_id = create_note_type(
+                            new_type_name, current_user_id,
+                            visible_roles=new_visible_roles
+                        )
                         if new_id:
                             st.success(f"添加成功！ID: {new_id}")
                             st.session_state.refresh_types = not st.session_state.refresh_types
@@ -305,6 +324,17 @@ def note_type_selector_component():
                             "新名称",
                             value=st.session_state.selected_type_name
                         )
+                        current_vroles = parse_visible_roles(
+                            selected_type.get('visible_roles')
+                        )
+                        edit_visible_roles = st.multiselect(
+                            "可见角色",
+                            options=list(ALL_ROLES),
+                            default=[r for r in ALL_ROLES if r in current_vroles],
+                            format_func=lambda r: ROLE_NAMES.get(r, r),
+                            key="edit_type_visible_roles",
+                            help="勾选可查看该类型备注的角色，管理员始终可见"
+                        )
                         if "user_id" in st.session_state:
                             updater_id = st.session_state.get("user_id")
                         else:
@@ -315,67 +345,70 @@ def note_type_selector_component():
                             if update_note_type(
                                 st.session_state.selected_type_id,
                                 name=new_name,
-                                updated_by=updater_id
+                                updated_by=updater_id,
+                                visible_roles=edit_visible_roles
                             ):
                                 st.success("更新成功")
                                 st.rerun()
                             else:
                                 st.error("更新失败")
                 
-                # 操作按钮组
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    # 软删除按钮
-                    if st.button(
-                        "软删除",
-                        type="secondary",
-                        use_container_width=True,
-                        key="soft_delete_btn",
-                        help="将类型标记为已删除（可恢复）"
-                    ):
-                        if "user_id" in st.session_state:
-                            if soft_delete_note_type(
-                                st.session_state.selected_type_id, 
-                                st.session_state.user_id
-                            ):
-                                st.success("删除成功")
-                                st.session_state.selected_type_id = None
-                                st.session_state.selected_type_name = None
-                                st.rerun()
+                # 删除操作藏进危险操作 expander，防止误触
+                with st.expander("危险操作", expanded=False):
+                    # 操作按钮组
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        # 软删除按钮
+                        if st.button(
+                            "软删除",
+                            type="secondary",
+                            use_container_width=True,
+                            key="soft_delete_btn",
+                            help="将类型标记为已删除（可恢复）"
+                        ):
+                            if "user_id" in st.session_state:
+                                if soft_delete_note_type(
+                                    st.session_state.selected_type_id, 
+                                    st.session_state.user_id
+                                ):
+                                    st.success("删除成功")
+                                    st.session_state.selected_type_id = None
+                                    st.session_state.selected_type_name = None
+                                    st.rerun()
+                                else:
+                                    st.error("删除失败，可能已被删除")
                             else:
-                                st.error("删除失败，可能已被删除")
-                        else:
-                            st.error("请先登录")
-                
-                with col_b:
-                    # 永久删除按钮（需要确认）
-                    if st.button(
-                        "永久删除",
-                        type="secondary",
-                        use_container_width=True,
-                        key="permanent_delete_btn",
-                        help="彻底从数据库删除，不可恢复！"
-                    ):
-                        st.session_state.confirm_permanent_delete = True
-                
-                # 永久删除确认对话框
-                if st.session_state.get('confirm_permanent_delete', False):
-                    st.warning("**危险操作**：永久删除将彻底移除这条记录，不可恢复！")
-                    col_confirm1, col_confirm2 = st.columns(2)
-                    with col_confirm1:
-                        if st.button("确认删除", type="primary", use_container_width=True):
-                            if permanently_delete_note_type(st.session_state.selected_type_id):
-                                st.success("已永久删除")
-                                st.session_state.selected_type_id = None
-                                st.session_state.selected_type_name = None
+                                st.error("请先登录")
+                    
+                    with col_b:
+                        # 永久删除按钮（需要确认）
+                        if st.button(
+                            "永久删除",
+                            type="secondary",
+                            use_container_width=True,
+                            key="permanent_delete_btn",
+                            help="彻底从数据库删除，不可恢复！"
+                        ):
+                            st.session_state.confirm_permanent_delete = True
+                    
+                    # 永久删除确认对话框
+                    if st.session_state.get('confirm_permanent_delete', False):
+                        st.warning("**危险操作**：永久删除将彻底移除这条记录，不可恢复！")
+                        col_confirm1, col_confirm2 = st.columns(2)
+                        with col_confirm1:
+                            if st.button("确认删除", type="primary", use_container_width=True):
+                                if permanently_delete_note_type(st.session_state.selected_type_id):
+                                    st.success("已永久删除")
+                                    st.session_state.selected_type_id = None
+                                    st.session_state.selected_type_name = None
+                                    st.session_state.confirm_permanent_delete = False
+                                    st.rerun()
+                                else:
+                                    st.error("删除失败")
+                        with col_confirm2:
+                            if st.button("取消", use_container_width=True):
                                 st.session_state.confirm_permanent_delete = False
                                 st.rerun()
-                            else:
-                                st.error("删除失败")
-                    with col_confirm2:
-                        if st.button("取消", use_container_width=True):
-                            st.session_state.confirm_permanent_delete = False
-                            st.rerun()
             
             elif selected_type and selected_type.get('is_deleted', 0):
                 # 如果是已删除的类型，显示恢复选项
@@ -406,18 +439,24 @@ def note_type_selector_component():
 def compact_note_type_selector():
     """
     更紧凑的版本 - 使用下拉选择器替代按钮网格
+    类型下拉按当前用户可见范围过滤
     """
     
     # 初始化
     if 'selected_type_id' not in st.session_state:
         st.session_state["selected_type_id"] = None
     
-    # 获取类型
+    # 获取类型并按当前用户可见范围过滤
     all_types = get_all_note_types()
+    viewer_role = st.session_state.get("role")
+    if viewer_role and not is_admin(viewer_role):
+        visible_ids = set(get_visible_note_type_ids(viewer_role))
+        all_types = [t for t in all_types if t['id'] in visible_ids]
     types_dict = {t['type_name']: t['id'] for t in all_types} if all_types else {}
     
     st.subheader("选择备注类型")
 
+    selected_name = None
     if types_dict:
         selected_name = st.selectbox(
             "选择类型",
@@ -431,9 +470,17 @@ def compact_note_type_selector():
         st.warning("暂无类型，请先添加")
         with st.form("quick_add", clear_on_submit=True):
             new_name = st.text_input("新增类型", placeholder="输入新增类型名称", label_visibility="collapsed")
+            new_vroles = st.multiselect(
+                "可见角色", options=list(ALL_ROLES), default=list(ALL_ROLES),
+                format_func=lambda r: ROLE_NAMES.get(r, r),
+                key="quick_add_vroles_empty"
+            )
             if st.form_submit_button("添加", width='stretch', type='primary'):
                 if new_name:
-                    new_id = create_note_type(new_name, created_by=st.session_state.get("user_id"))
+                    new_id = create_note_type(
+                        new_name, created_by=st.session_state.get("user_id"),
+                        visible_roles=new_vroles
+                    )
                     if new_id:
                         st.success("添加成功")
                         st.rerun()
@@ -445,19 +492,40 @@ def compact_note_type_selector():
 
             with st.form("quick_add", clear_on_submit=True):
                 new_name = st.text_input("新增类型", placeholder="输入新增类型名称", label_visibility="collapsed")
+                new_vroles = st.multiselect(
+                    "可见角色", options=list(ALL_ROLES), default=list(ALL_ROLES),
+                    format_func=lambda r: ROLE_NAMES.get(r, r),
+                    key="quick_add_vroles"
+                )
                 if st.form_submit_button("添加", width='stretch', type='primary'):
                     if new_name:
-                        new_id = create_note_type(new_name, created_by=st.session_state.get("user_id"))
+                        new_id = create_note_type(
+                            new_name, created_by=st.session_state.get("user_id"),
+                            visible_roles=new_vroles
+                        )
                         if new_id:
                             st.success("添加成功")
                             st.rerun()
                         else:
                             st.error("名称已存在")
 
+            # 取当前选中类型的可见角色作为更新表单默认值
+            sel_type = next(
+                (t for t in get_all_note_types() if t['id'] == st.session_state.selected_type_id),
+                None
+            )
+            sel_vroles = parse_visible_roles(sel_type.get('visible_roles') if sel_type else None)
+
             with st.form("update_type_form_compact"):
                 new_name = st.text_input(
                     "更新类型",
                     value=selected_name
+                )
+                edit_vroles = st.multiselect(
+                    "可见角色", options=list(ALL_ROLES),
+                    default=[r for r in ALL_ROLES if r in sel_vroles],
+                    format_func=lambda r: ROLE_NAMES.get(r, r),
+                    key="update_type_vroles_compact"
                 )
                 if "user_id" in st.session_state:
                     updater_id = st.session_state.get("user_id")
@@ -469,11 +537,12 @@ def compact_note_type_selector():
                     if update_note_type(
                         st.session_state.selected_type_id,
                         name=new_name,
-                        updated_by=updater_id
+                        updated_by=updater_id,
+                        visible_roles=edit_vroles
                     ):
                         st.success("更新成功")
                         st.rerun()
                     else:
                         st.error("更新失败")
 
-    return types_dict[selected_name] if st.session_state.selected_type_id else None
+    return types_dict[selected_name] if st.session_state.selected_type_id and selected_name else None

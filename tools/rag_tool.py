@@ -14,21 +14,20 @@ _embedder = SentenceTransformer(EMBEDDING_MODEL)
 _client = chromadb.PersistentClient(path=CHROMA_PATH)
 _collection = _client.get_collection(COLLECTION_NAME)
 
-def _check_read_permission(role: str) -> bool:
-    return role in ("viewer", "editor", "admin")
+from utils.permissions import can_view_analysis as _check_read_permission
 
 @tool
 def rag_search_tool(query: str, user_id: int = None, role: str = None) -> str:
     """
     使用语义检索（RAG）在题目库和笔记库中查找与问题最相关的内容。
     返回相关的题目原文、答案、解析或笔记。
-    权限：viewer / editor / admin
+    权限：viewer / advancer / editor / admin
     """
     
     trace("RAGTools", f"{role} {user_id} Search", f"query={query}")
 
     if not _check_read_permission(role):
-        return "错误：您没有使用 RAG 检索的权限（需要 viewer / editor / admin 角色）"
+        return "错误：您没有使用 RAG 检索的权限（需要 viewer / advancer / editor / admin 角色）"
     
     try:
         results = _collection.query(query_texts=[query], n_results=5)

@@ -1,7 +1,8 @@
 import sqlite3
-import sqlite3
 import hashlib
 from datetime import datetime
+
+from utils.permissions import is_admin
 
 DB_PATH = "./data/questions.db"
 
@@ -123,6 +124,77 @@ def get_user_by_id(user_id):
 
 
 # =====================
+# 用户信息自助管理
+# =====================
+def verify_password(user_id, password) -> bool:
+    """校验指定用户的密码是否正确，用于敏感操作前的身份验证。"""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT password_hash FROM users WHERE id = ? AND is_deleted = 0",
+        (user_id,)
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return False
+    return hash_password(password) == row[0]
+
+
+def is_username_taken(username, exclude_user_id=None) -> bool:
+    """检查用户名是否已被其他（未软删除）用户占用。
+
+    exclude_user_id: 排除自身的用户 id，用于修改用户名时忽略当前用户。
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    if exclude_user_id is not None:
+        cur.execute(
+            "SELECT 1 FROM users WHERE username = ? AND is_deleted = 0 AND id != ?",
+            (username, exclude_user_id)
+        )
+    else:
+        cur.execute(
+            "SELECT 1 FROM users WHERE username = ? AND is_deleted = 0",
+            (username,)
+        )
+    row = cur.fetchone()
+    conn.close()
+    return row is not None
+
+
+def update_username(user_id, new_username) -> bool:
+    """修改用户名。成功返回 True，用户名重复返回 False。"""
+    if is_username_taken(new_username, exclude_user_id=user_id):
+        return False
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE users
+        SET username = ?,
+            updated_at = datetime('now','localtime')
+        WHERE id = ?
+    """, (new_username, user_id))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def update_password(user_id, new_password):
+    """修改用户密码（明文传入，内部哈希存储）。"""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE users
+        SET password_hash = ?,
+            updated_at = datetime('now','localtime')
+        WHERE id = ?
+    """, (hash_password(new_password), user_id))
+    conn.commit()
+    conn.close()
+
+
+# =====================
 # AI 助手使用白名单
 # =====================
 def _ensure_ai_whitelist_table():
@@ -144,7 +216,7 @@ def is_ai_enabled(user_id) -> bool:
     cur = conn.cursor()
     cur.execute("SELECT role FROM users WHERE id = ? AND is_deleted = 0", (user_id,))
     row = cur.fetchone()
-    if row and row[0] == "admin":
+    if row and is_admin(row[0]):
         conn.close()
         return True
     cur.execute("SELECT 1 FROM ai_whitelist WHERE user_id = ?", (user_id,))

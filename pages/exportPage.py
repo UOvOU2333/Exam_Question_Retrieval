@@ -4,7 +4,7 @@
 
 import streamlit as st
 
-from utils.auth_utils import require_login, require_role
+from utils.auth_utils import require_login, require_permission
 from utils.navbar_utils import navbar
 from services.paper_export_services import (
     list_years_with_papers,
@@ -15,9 +15,9 @@ from utils.export_utils import export_to_word, export_to_pdf
 
 
 def export():
-    # 登录校验 + 权限校验（仅 admin / editor 可导出，viewer 不可）
+    # 登录校验 + 权限校验（advancer / editor / admin 可导出）
     require_login()
-    require_role("admin", "editor")
+    require_permission("export")
 
     st.title("📤 试卷导出")
     st.caption("选择年份和卷种，导出整套试卷的题目、答案、解析（PDF / Word）")

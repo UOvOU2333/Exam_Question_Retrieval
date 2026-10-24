@@ -1,11 +1,12 @@
 import streamlit as st
 import streamlit_antd_components as sac
 
-from utils.auth_utils import require_login, check_role
+from utils.auth_utils import require_login, check_permission
+from utils.permissions import is_admin
 from utils.render_utils import render_markdown
 from utils.note_utils import display_notes_list
 from services.question_services import search_questions, get_question_by_id, search_by_note
-from services.note_services import get_all_note_types
+from services.note_services import get_all_note_types, get_visible_note_type_ids
 from tools.exam_type_utils import QUESTION_TYPES, KNOWLEDGE_MODULES, str_to_knowledge_modules
 
 
@@ -88,6 +89,11 @@ def search():
             ("解析来源", "analysis_source"),
         ]
 
+        # 体验用户不可搜索/查看解析，仅保留题目与答案选项
+        if not check_permission("view_analysis"):
+            options_que = [o for o in options_que if o[1] in ("content", "answer")]
+            options_sou = [o for o in options_sou if o[1] == "source"]
+
         col_cho, col_op = st.columns([1,1])
 
         with col_cho:
@@ -127,8 +133,12 @@ def search():
         if show_choice == "高级":
             st.subheader("📝 备注检索")
             
-            # 获取所有标签（笔记类型）
+            # 获取所有标签（笔记类型），按当前用户可见范围过滤
+            viewer_role = st.session_state.get("role")
             note_types = get_all_note_types()
+            if viewer_role and not is_admin(viewer_role):
+                visible_ids = set(get_visible_note_type_ids(viewer_role))
+                note_types = [t for t in note_types if t['id'] in visible_ids]
             note_type_options = {"全部标签": None}
             for note_type in note_types:
                 note_type_options[note_type['type_name']] = note_type['id']
@@ -207,11 +217,16 @@ def search():
     note_results = []
     if show_choice == "高级":
     # if type_id or note_content or note_creator:
+        # 按当前用户可见类型过滤备注检索结果（admin 不过滤）
+        _viewer_role = st.session_state.get("role")
+        _visible_ids = None if (not _viewer_role or is_admin(_viewer_role)) \
+            else get_visible_note_type_ids(_viewer_role)
         note_results = search_by_note(
             type_id=type_id or None,
             content=note_content.strip() or None,
             created_by=note_creator.strip() or None,
-            fuzzy=True
+            fuzzy=True,
+            visible_type_ids=_visible_ids
         )
     
     # 取交集
@@ -281,7 +296,10 @@ def search():
                 if answer:
                     render_markdown(answer, "【答案】", keyword)
                 if analysis:
-                    render_markdown(analysis, "【解析】", keyword)
+                    if check_permission("view_analysis"):
+                        render_markdown(analysis, "【解析】", keyword)
+                    else:
+                        st.info("🔒 当前为体验用户，无法查看解析内容")
 
             else:
                 st.markdown("### 题目内容")
@@ -292,8 +310,11 @@ def search():
                     render_markdown(answer, None, keyword)
 
                 if analysis:
-                    st.markdown("### 解析")
-                    render_markdown(analysis, None, keyword)
+                    if check_permission("view_analysis"):
+                        st.markdown("### 解析")
+                        render_markdown(analysis, None, keyword)
+                    else:
+                        st.info("🔒 当前为体验用户，无法查看解析内容")
 
                 if year:
                     caption_parts.append(f"📅 年份：{year}")
@@ -313,7 +334,7 @@ def search():
 
             display_notes_list(qid)
 
-            if check_role("admin", "editor"):
+            if check_permission("update"):
                 if st.button("更新试题", key=f"update_btn_{qid}"):
                     st.session_state["update_qid"] = qid
                     st.switch_page("pages/managingPage.py")

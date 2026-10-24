@@ -287,10 +287,13 @@ def move_to_recycle_bin(qid):
 def search_by_note(type_id: int | None = None,
                    content: str | None = None,
                    created_by: str | None = None,
-                   fuzzy: bool = True):
+                   fuzzy: bool = True,
+                   visible_type_ids: list | None = None):
     """
     根据备注信息检索题目
     支持按标签、内容、备注人搜索，可模糊匹配
+    :param visible_type_ids: 可见备注类型 ID 列表，仅检索这些类型下的备注；
+                             None 表示不过滤（admin 或内部调用），空列表表示无可见类型直接返回空
     返回满足条件的 questionID 列表
     """
 
@@ -308,6 +311,15 @@ def search_by_note(type_id: int | None = None,
 
     conditions = []
     params = []
+
+    # 可见类型过滤（基础权限过滤）
+    if visible_type_ids is not None:
+        if not visible_type_ids:
+            conn.close()
+            return []
+        placeholders = ",".join("?" for _ in visible_type_ids)
+        conditions.append("n.type_id IN (%s)" % placeholders)
+        params.extend(visible_type_ids)
 
     # 标签搜索
     if type_id:
