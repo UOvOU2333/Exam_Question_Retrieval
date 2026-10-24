@@ -248,6 +248,7 @@ db_schema.json
 *.db
 *.db.*
 backup_sqlite.sh
+data/paper_type_change_rules.json
 
 # img
 *.png
