@@ -49,7 +49,7 @@ def get_all_users():
 def get_all_users_with_deleted():
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT id, username, role, created_at FROM users ORDER BY id")
+    cur.execute("SELECT id, username, role, created_at, is_deleted FROM users ORDER BY id")
     rows = cur.fetchall()
     conn.close()
     return rows
@@ -101,7 +101,7 @@ def soft_delete_user(user_id):
     conn.close()
 
 
-def restore_user(conn, user_id):
+def restore_user(user_id):
     conn = get_conn()
     cur = conn.cursor()
     sql = """
