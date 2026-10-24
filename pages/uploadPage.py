@@ -6,11 +6,13 @@ from utils.auth_utils import require_role
 from utils.render_utils import render_markdown
 from utils.multi_func import rich_markdown
 from services.question_services import create_question
+from services.user_services import is_ai_enabled
 from tools.exam_type_utils import (
     QUESTION_TYPES,
     KNOWLEDGE_MODULES,
     detect_question_type,
 )
+from tools.tag_suggest import suggest_knowledge_modules
 
 # =========================
 # 图片存储配置
@@ -85,12 +87,29 @@ def upload():
                 st.caption(f"💡 自动检测：{detected_type}（可修改）")
         
         # 知识模块（多选，可空）
+        km_key = f"upload_knowledge_modules_{key_suffix}"
         knowledge_modules = st.multiselect(
             "知识模块",
             options=KNOWLEDGE_MODULES,
-            key=f"upload_knowledge_modules_{key_suffix}",
+            key=km_key,
             placeholder="可多选",
         )
+
+        # AI 推荐知识模块（需白名单授权）
+        if is_ai_enabled(st.session_state.get("user_id")):
+            if st.button("AI 推荐知识模块", key=f"ai_km_{key_suffix}",
+                         help="用 DeepSeek 根据题目内容推荐知识模块"):
+                if not content.strip():
+                    st.warning("请先输入题目内容")
+                else:
+                    with st.spinner("AI 分析中..."):
+                        ai_modules, ai_reason = suggest_knowledge_modules(content, answer, analysis)
+                    if ai_modules:
+                        st.session_state[km_key] = ai_modules
+                        st.success(f"推荐：{', '.join(ai_modules)}")
+                        st.rerun()
+                    else:
+                        st.warning(f"未能推荐：{ai_reason}")
 
         left_source, right_analysis_source = st.columns(2)
         with left_source:

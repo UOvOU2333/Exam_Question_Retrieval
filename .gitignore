@@ -249,6 +249,7 @@ db_schema.json
 *.db.*
 backup_sqlite.sh
 data/paper_type_change_rules.json
+data/knowledge_module_profile.json
 
 # img
 *.png
