@@ -1,0 +1,58 @@
+[
+  {
+    "id": 1,
+    "from_year": 2026,
+    "from_paper": "东北卷",
+    "to_year": 2026,
+    "to_paper": "黑吉辽蒙卷"
+  },
+  {
+    "id": 2,
+    "from_year": 2025,
+    "from_paper": "东北卷",
+    "to_year": 2025,
+    "to_paper": "黑吉辽蒙卷"
+  },
+  {
+    "id": 3,
+    "from_year": 2024,
+    "from_paper": "东北卷",
+    "to_year": 2024,
+    "to_paper": "黑吉辽卷"
+  },
+  {
+    "id": 4,
+    "from_year": 2023,
+    "from_paper": "东北卷",
+    "to_year": 2023,
+    "to_paper": "辽宁卷"
+  },
+  {
+    "id": 5,
+    "from_year": 2022,
+    "from_paper": "东北卷",
+    "to_year": 2022,
+    "to_paper": "辽宁卷"
+  },
+  {
+    "id": 6,
+    "from_year": 2021,
+    "from_paper": "东北卷",
+    "to_year": 2021,
+    "to_paper": "辽宁卷"
+  },
+  {
+    "id": 7,
+    "from_year": 2025,
+    "from_paper": "西北卷",
+    "to_year": 2025,
+    "to_paper": "陕晋青宁卷"
+  },
+  {
+    "id": 8,
+    "from_year": 2026,
+    "from_paper": "西北卷",
+    "to_year": 2026,
+    "to_paper": "陕晋青宁卷"
+  }
+]

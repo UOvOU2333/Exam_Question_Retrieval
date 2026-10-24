@@ -349,3 +349,65 @@ def search_by_note(type_id: int | None = None,
     # 提取 questionID 列表
     result = [row["questionID"] for row in rows]
     return result
+
+
+# =====================
+# 卷种批量变更相关
+# =====================
+def count_questions_by_year_paper(year, paper_type):
+    """统计指定年份+卷种的题目数量（非回收站，精确匹配）"""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT COUNT(*) FROM questions WHERE year = ? AND paper_type = ? AND isInRecycleBin = 0",
+        (year, paper_type),
+    )
+    count = cur.fetchone()[0]
+    conn.close()
+    return count
+
+
+def get_paper_type_distribution():
+    """获取所有 (year, paper_type) 的题目数量分布（非回收站）"""
+    conn = get_conn()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT year, paper_type, COUNT(*) AS cnt
+        FROM questions
+        WHERE isInRecycleBin = 0
+        GROUP BY year, paper_type
+        ORDER BY year DESC, paper_type ASC
+    """)
+    rows = cur.fetchall()
+    conn.close()
+    return [{"year": r["year"], "paper_type": r["paper_type"], "count": r["cnt"]} for r in rows]
+
+
+def batch_change_paper_type(mappings):
+    """
+    批量变更年份+卷种。
+    mappings: list of tuple (from_year, from_paper, to_year, to_paper)
+    仅处理非回收站题目，精确匹配 year + paper_type。
+    返回 list of dict: [{from_year, from_paper, to_year, to_paper, changed}, ...]
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    results = []
+    for from_year, from_paper, to_year, to_paper in mappings:
+        cur.execute("""
+            UPDATE questions
+            SET year = ?, paper_type = ?
+            WHERE year = ? AND paper_type = ? AND isInRecycleBin = 0
+        """, (to_year, to_paper, from_year, from_paper))
+        changed = cur.rowcount
+        results.append({
+            "from_year": from_year,
+            "from_paper": from_paper,
+            "to_year": to_year,
+            "to_paper": to_paper,
+            "changed": changed,
+        })
+    conn.commit()
+    conn.close()
+    return results
