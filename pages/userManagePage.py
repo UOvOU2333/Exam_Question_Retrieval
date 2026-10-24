@@ -3,7 +3,7 @@ import streamlit as st
 import hashlib
 
 from utils.auth_utils import require_permission
-from utils.permissions import ALL_ROLES, ROLE_NAMES, is_admin
+from utils.permissions import ALL_ROLES, ROLE_NAMES, is_admin, ROLE_EN_SHORT
 from services.user_services import (
     get_all_users,
     create_user,
@@ -50,7 +50,7 @@ def user_manage():
                     c1, c2, c3, c4, c5 = st.columns([1, 2, 2, 2, 3])
                     c1.write(uid)
                     c2.markdown(f"**{uname}**")
-                    c3.write(ROLE_NAMES.get(urole, urole))
+                    c3.write(f"{ROLE_NAMES.get(urole, urole)}（{ROLE_EN_SHORT.get(urole,urole)}）")
                     with c4:
                         if user_is_admin:
                             st.markdown("自动授权")

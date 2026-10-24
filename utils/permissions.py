@@ -40,6 +40,15 @@ ROLE_NAMES = {
     ROLE_ADMIN: "管理员",
 }
 
+# ========== 角色英文缩写 ==========
+ROLE_EN_SHORT = {
+    ROLE_EXPERIENCER: "Experiencer",
+    ROLE_VIEWER: "Viwer",
+    ROLE_ADVANCER: "Advancer",
+    ROLE_EDITOR: "Editor",
+    ROLE_ADMIN: "Admin",
+}
+
 # ========== 角色权限提示（用户主页展示用）==========
 ROLE_PERMISSION_INFO = {
     ROLE_EXPERIENCER: "查看题目与答案",
