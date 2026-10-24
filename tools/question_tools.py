@@ -10,6 +10,7 @@ from services.question_services import (
     search_by_note,
 )
 from services.user_services import get_user_by_id
+from services.note_services import get_visible_note_type_ids
 from chains.loger import trace
 import sqlite3
 import urllib.parse
@@ -401,11 +402,13 @@ def search_question_by_note_tool(
         return "错误：您没有查看笔记的权限（需要 viewer / editor / admin 角色）"
 
     try:
+        _visible_ids = None if (not role or role == "admin") else get_visible_note_type_ids(role)
         qids = search_by_note(
             type_id=type_id,
             content=content_keyword,
             created_by=created_by,
             fuzzy=fuzzy,
+            visible_type_ids=_visible_ids,
         )
         if not qids:
             trace("QuestionTools", f"{role} {user_id} SearchByNote Result", "no results")

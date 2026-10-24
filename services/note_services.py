@@ -3,26 +3,98 @@ from datetime import datetime
 
 DB_PATH = "data/questions.db"
 
+ALL_ROLES = ("admin", "editor", "viewer")
+DEFAULT_VISIBLE_ROLES = "admin,editor,viewer"
+
 
 def get_conn():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
 
-def create_note_type(name, created_by):
+def parse_visible_roles(s):
+    """将逗号分隔的可见角色字符串解析为集合（忽略空值与非法值）"""
+    if not s:
+        return set(ALL_ROLES)
+    parts = [p.strip() for p in s.split(",") if p.strip()]
+    return set(parts) if parts else set(ALL_ROLES)
+
+
+def normalize_visible_roles(roles):
+    """将角色列表/逗号字符串规范化为逗号分隔字符串（保持 ALL_ROLES 顺序）"""
+    if roles is None:
+        return DEFAULT_VISIBLE_ROLES
+    if isinstance(roles, str):
+        roles_set = parse_visible_roles(roles)
+    else:
+        roles_set = set(r for r in roles if r)
+    ordered = [r for r in ALL_ROLES if r in roles_set]
+    return ",".join(ordered) if ordered else DEFAULT_VISIBLE_ROLES
+
+
+def can_view_note_type(type_id, role):
+    """
+    判断指定角色能否查看某类型备注。
+    admin 始终可见；visible_roles 为空/NULL 视为全可见；否则要求 role 在 visible_roles 中。
+    """
+    if role == "admin":
+        return True
+    conn = get_conn()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT visible_roles FROM note_types WHERE id = ? AND is_deleted = 0",
+        (type_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return False
+    return role in parse_visible_roles(row["visible_roles"])
+
+
+def get_visible_note_type_ids(role, include_deleted=False):
+    """
+    获取指定角色可见的备注类型 ID 列表。
+    admin 返回全部；其他角色按 visible_roles 过滤（NULL/空视为全可见）。
+    """
+    conn = get_conn()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    if role == "admin":
+        if include_deleted:
+            cur.execute("SELECT id FROM note_types ORDER BY id")
+        else:
+            cur.execute("SELECT id FROM note_types WHERE is_deleted = 0 ORDER BY id")
+    else:
+        del_cond = "" if include_deleted else "AND is_deleted = 0"
+        cur.execute(
+            "SELECT id FROM note_types "
+            "WHERE (visible_roles IS NULL OR visible_roles = '' OR visible_roles LIKE ?) %s "
+            "ORDER BY id" % del_cond,
+            ("%%%s%%" % role,),
+        )
+    rows = cur.fetchall()
+    conn.close()
+    return [row["id"] for row in rows]
+
+
+def create_note_type(name, created_by, visible_roles=None):
     """
     创建笔记类型
     :param name: 类型名称
     :param created_by: 创建人ID
+    :param visible_roles: 可见角色（列表或逗号分隔字符串），默认全部角色可见
     :return: 新创建的类型ID
     """
+    vroles = normalize_visible_roles(visible_roles)
     conn = get_conn()
     cur = conn.cursor()
     
     try:
         cur.execute("""
-            INSERT INTO note_types (type_name, created_by)
-            VALUES (?, ?)
-        """, (name, created_by))
+            INSERT INTO note_types (type_name, created_by, visible_roles)
+            VALUES (?, ?, ?)
+        """, (name, created_by, vroles))
         
         conn.commit()
         type_id = cur.lastrowid
@@ -35,15 +107,16 @@ def create_note_type(name, created_by):
         conn.close()
 
 
-def update_note_type(type_id, name=None, updated_by=None):
+def update_note_type(type_id, name=None, updated_by=None, visible_roles=None):
     """
     更新笔记类型
     :param type_id: 类型ID
     :param name: 新的类型名称（可选）
     :param updated_by: 更新人ID
+    :param visible_roles: 可见角色（列表或逗号分隔字符串，可选）
     :return: 是否更新成功
     """
-    if not name and not updated_by:
+    if not name and not updated_by and visible_roles is None:
         return False
     
     conn = get_conn()
@@ -61,6 +134,10 @@ def update_note_type(type_id, name=None, updated_by=None):
         if updated_by:
             update_fields.append("updated_by = ?")
             params.append(updated_by)
+        
+        if visible_roles is not None:
+            update_fields.append("visible_roles = ?")
+            params.append(normalize_visible_roles(visible_roles))
         
         # 添加ID参数
         params.append(type_id)
@@ -127,7 +204,7 @@ def get_note_type(type_id):
     
     cur.execute("""
         SELECT id, type_name, created_by, created_at, 
-               updated_by, updated_at
+               updated_by, updated_at, visible_roles
         FROM note_types 
         WHERE id = ? AND is_deleted = 0
     """, (type_id,))
@@ -153,14 +230,14 @@ def get_all_note_types(include_deleted=False):
     if include_deleted:
         cur.execute("""
             SELECT id, type_name, created_by, created_at, 
-                   updated_by, updated_at, is_deleted
+                   updated_by, updated_at, is_deleted, visible_roles
             FROM note_types 
             ORDER BY id
         """)
     else:
         cur.execute("""
             SELECT id, type_name, created_by, created_at, 
-                   updated_by, updated_at, is_deleted
+                   updated_by, updated_at, is_deleted, visible_roles
             FROM note_types 
             WHERE is_deleted = 0
             ORDER BY id
@@ -221,25 +298,39 @@ def permanently_delete_note_type(type_id):
     return success
 
 
-def get_question_notes(question_id):
+def get_question_notes(question_id, viewer_role=None):
     """
-    获取指定题目的所有备注（未删除的）
+    获取指定题目的所有备注（未删除的）。
+    :param viewer_role: 查看者角色。None 或 'admin' 返回全部（admin 始终全可见）；
+                        其他角色仅返回 note_types.visible_roles 包含该角色的备注
+                        （visible_roles 为空/NULL 视为全可见，向后兼容）。
     """
     conn = get_conn()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    
-    cur.execute("""
-        SELECT qn.*, nt.type_name 
-        FROM question_notes qn
-        JOIN note_types nt ON qn.type_id = nt.id
-        WHERE qn.question_id = ? AND qn.is_deleted = 0
-        ORDER BY qn.created_at DESC
-    """, (question_id,))
-    
+
+    if viewer_role is None or viewer_role == "admin":
+        cur.execute("""
+            SELECT qn.*, nt.type_name, nt.visible_roles
+            FROM question_notes qn
+            JOIN note_types nt ON qn.type_id = nt.id
+            WHERE qn.question_id = ? AND qn.is_deleted = 0
+            ORDER BY qn.created_at DESC
+        """, (question_id,))
+    else:
+        cur.execute("""
+            SELECT qn.*, nt.type_name, nt.visible_roles
+            FROM question_notes qn
+            JOIN note_types nt ON qn.type_id = nt.id
+            WHERE qn.question_id = ? AND qn.is_deleted = 0
+              AND (nt.visible_roles IS NULL OR nt.visible_roles = ''
+                   OR nt.visible_roles LIKE ?)
+            ORDER BY qn.created_at DESC
+        """, (question_id, "%%%s%%" % viewer_role))
+
     rows = cur.fetchall()
     conn.close()
-    
+
     return [dict(row) for row in rows]
 
 
