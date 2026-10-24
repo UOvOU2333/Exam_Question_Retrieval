@@ -33,13 +33,6 @@ def upload():
 
     st.title("试题上传")
 
-    st.divider()
-
-    # =========================
-    # Markdown 编辑 + 实时预览
-    # =========================
-    rich_markdown(IMAGE_DIR, True, None)
-
     key_suffix = st.session_state.get("form_version", 0)
     if st.session_state.get(f"upload_year_{key_suffix}", 0) == 0:
         st.session_state[f"upload_year_{key_suffix}"] = 2020
@@ -69,22 +62,28 @@ def upload():
             key=f"upload_analysis_{key_suffix}"
         )
 
-        year = st.number_input("年份", min_value=1949, max_value=2050, step=10, key=f"upload_year_{key_suffix}")
-        paper_type = st.text_input("卷种",
-            placeholder="XX卷", key=f"upload_paper_type_{key_suffix}")
-        question_no = st.text_input("题号", key=f"upload_question_no_{key_suffix}")
+        left_year, right_type = st.columns(2)
+        with left_year:
+            year = st.number_input("年份", min_value=1949, max_value=2050, step=10, key=f"upload_year_{key_suffix}")
+        with right_type:
+            paper_type = st.text_input("卷种",
+                placeholder="XX卷", key=f"upload_paper_type_{key_suffix}")
 
-        # 题型（自动检测预填，可手动修改）
-        type_options = ["（未选择）"] + QUESTION_TYPES
-        qt_key = f"upload_question_type_{key_suffix}"
-        detected_type = detect_question_type(content, answer, question_no)
-        if qt_key not in st.session_state and detected_type:
-            st.session_state[qt_key] = detected_type
-        question_type_sel = st.selectbox("题型", options=type_options, key=qt_key)
-        question_type = None if question_type_sel == "（未选择）" else question_type_sel
-        if detected_type:
-            st.caption(f"💡 自动检测：{detected_type}（可修改）")
-
+        left_no, right_type_op = st.columns(2)
+        with left_no:
+            question_no = st.text_input("题号", key=f"upload_question_no_{key_suffix}")
+        with right_type_op:
+            # 题型（自动检测预填，可手动修改）
+            type_options = ["（未选择）"] + QUESTION_TYPES
+            qt_key = f"upload_question_type_{key_suffix}"
+            detected_type = detect_question_type(content, answer, question_no)
+            if qt_key not in st.session_state and detected_type:
+                st.session_state[qt_key] = detected_type
+            question_type_sel = st.selectbox("题型", options=type_options, key=qt_key)
+            question_type = None if question_type_sel == "（未选择）" else question_type_sel
+            if detected_type:
+                st.caption(f"💡 自动检测：{detected_type}（可修改）")
+        
         # 知识模块（多选，可空）
         knowledge_modules = st.multiselect(
             "知识模块",
@@ -93,10 +92,17 @@ def upload():
             placeholder="可多选",
         )
 
-        source = st.text_input("题目来源", key=f"upload_source_{key_suffix}")
-        analysis_source = st.text_input("解析来源", key=f"upload_analysis_source_{key_suffix}")
+        left_source, right_analysis_source = st.columns(2)
+        with left_source:
+            source = st.text_input("题目来源", key=f"upload_source_{key_suffix}")
+        with right_analysis_source:
+            analysis_source = st.text_input("解析来源", key=f"upload_analysis_source_{key_suffix}")
 
     with col_preview:
+        rich_markdown(IMAGE_DIR, True, None)
+
+        st.divider()
+
         st.subheader("👀 实时预览")
 
         if content.strip():

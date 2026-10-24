@@ -49,6 +49,7 @@ def show_dashboard():
 
     st.success(f"欢迎你，{username}")
 
+    info = "查看试题"
     # ===== 权限提示（单独一行）=====
     if role == "admin":
         info = "管理用户、管理试题"
@@ -57,9 +58,17 @@ def show_dashboard():
     elif role == "viewer":
         info = "查看试题"
 
+    role_names = {"admin": "管理员", "editor": "编辑员", "viewer": "普通用户"}
+    role_cn = role_names.get(role, role)
     ai_ok = is_ai_enabled(st.session_state.get("user_id"))
-    ai_text = "✅ 可使用" if ai_ok else "❌ 未授权"
-    st.info(f"当前角色：**{role}**，你的权限：**{info}**　|　AI 助手：**{ai_text}**")
+    ai_text = "可使用" if ai_ok else "未授权"
+    left, mid, right = st.columns([1, 2, 1])
+    with left:
+        st.info(f"当前角色：**{role_cn}**")
+    with mid:
+        st.info(f"你的权限：**{info}**")
+    with right:
+        st.info(f"智能助手：**{ai_text}**")
 
     # ===== 退出 =====
     if st.button("退出登录"):

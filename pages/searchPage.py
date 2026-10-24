@@ -31,10 +31,10 @@ def search():
         with col_tag:
             col_filter, col_copy = st.columns(2)
             with col_filter:
-                flag_new_textbook = st.toggle("新教材")
-                flag_no = st.toggle("题号模糊")
+                flag_no = False
             with col_copy:
                 flag_copy = st.toggle("复制模式")
+                flag_new_textbook = st.toggle("新教材")
         # =========================
         # 检索输入区
         # =========================

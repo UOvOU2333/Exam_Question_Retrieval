@@ -14,10 +14,3 @@ def note_type_management():
     
     with tab2:
         question_notes_component()
-    
-        with st.expander("查看Session State（调试信息）"):
-            st.json({
-                "selected_type_id": st.session_state.get('selected_type_id'),
-                "selected_type_name": st.session_state.get('selected_type_name'),
-                "selected_type_id_compact": st.session_state.get('selected_type_id_compact')
-            })
