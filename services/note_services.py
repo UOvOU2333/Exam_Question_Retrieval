@@ -380,3 +380,39 @@ def soft_delete_question_note(note_id, updated_by):
         return cur.rowcount > 0
     finally:
         conn.close()
+
+
+def search_notes(keyword, note_type_name=None, viewer_role=None, limit=50):
+    """
+    按关键词搜索备注内容，返回匹配备注及其关联题目的元信息。
+    :param keyword: 在备注 content 中搜索的关键词
+    :param note_type_name: 可选，限定备注类型名称
+    :param viewer_role: 查看者角色，按 visible_roles 过滤可见备注；None/admin 不过滤
+    :param limit: 最多返回条数
+    """
+    conn = get_conn()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    sql = (
+        "SELECT qn.note_id, qn.question_id, qn.type_id, qn.content, qn.created_at, "
+        "nt.type_name, nt.visible_roles, "
+        "q.year, q.paper_type, q.question_no "
+        "FROM question_notes qn "
+        "JOIN note_types nt ON qn.type_id = nt.id "
+        "JOIN questions q ON qn.question_id = q.questionID "
+        "WHERE qn.is_deleted = 0 AND qn.content LIKE ?"
+    )
+    params = ["%%%s%%" % keyword]
+    if note_type_name:
+        sql += " AND nt.type_name = ?"
+        params.append(note_type_name)
+    if viewer_role and not is_admin(viewer_role):
+        sql += " AND (nt.visible_roles IS NULL OR nt.visible_roles = '' OR nt.visible_roles LIKE ?)"
+        params.append("%%%s%%" % viewer_role)
+    sql += " ORDER BY qn.created_at DESC LIMIT ?"
+    params.append(limit)
+    cur.execute(sql, params)
+    rows = cur.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

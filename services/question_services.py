@@ -51,6 +51,7 @@ def search_questions(
     new_textbook_only: bool = False,
     question_type: str | None = None,
     knowledge_modules: list | None = None,
+    include_analysis: bool = True,
 ):
     conn = get_conn()
     conn.row_factory = sqlite3.Row
@@ -98,14 +99,18 @@ def search_questions(
         if search_scope == "qa":
             # 仅搜索题目/答案/解析
             if field_que == "all":
-                fields = ["content", "answer", "analysis"]
+                fields = ["content", "answer"]
+                if include_analysis:
+                    fields.append("analysis")
             else:
                 fields = [field_que]
 
         elif search_scope == "source":
             # 仅搜索来源
             if field_sou == "all":
-                fields = ["source", "analysis_source"]
+                fields = ["source"]
+                if include_analysis:
+                    fields.append("analysis_source")
             else:
                 fields = [field_sou]
         else:

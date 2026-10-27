@@ -4,7 +4,9 @@ import requests
 from datetime import datetime
 
 from services.question_services import search_questions, get_question_by_id
+from services.note_services import get_question_notes, search_notes
 from tools.exam_type_utils import QUESTION_TYPES, KNOWLEDGE_MODULES
+from utils.permissions import can_view_analysis
 
 DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
 DEFAULT_MODEL = "deepseek-flash"
@@ -47,6 +49,35 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_question_notes",
+            "description": "获取指定题目下的所有备注（如知识模块、评分细则、个人解析、其他版本解析等），按用户权限过滤可见范围。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question_id": {"type": "integer", "description": "题目ID"},
+                },
+                "required": ["question_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_notes",
+            "description": "按关键词搜索备注内容，返回匹配备注及其关联题目。适用于通过备注内容查找相关题目。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keyword": {"type": "string", "description": "在备注内容中搜索的关键词"},
+                    "note_type_name": {"type": "string", "description": "可选，限定备注类型名称，如 知识模块、评分细则、评价与个人解析、其他版本解析、试题类型、相关概念或知识"},
+                },
+                "required": ["keyword"],
+            },
+        },
+    },
 ]
 
 
@@ -59,7 +90,8 @@ def _build_system_prompt() -> str:
         "1. 分析用户问题，提取检索关键词和结构化筛选条件（卷种、年份、题型、知识模块等）。\n"
         "2. 调用 search_questions 检索。若结果不理想，可换用不同关键词或放宽/收紧条件再次检索（最多尝试3次）。\n"
         "3. 对需要详细解答的题目，调用 get_question 获取完整内容、答案与解析。\n"
-        "4. 综合检索结果组织回答，引用题目时标注【题目ID】。\n\n"
+        "4. 若用户想了解题目备注（知识模块、评分细则、个人解析、其他版本解析等），调用 get_question_notes；若想通过备注内容找题，调用 search_notes。\n"
+        "5. 综合检索结果组织回答，引用题目时标注【题目ID】。\n\n"
         f"参数取值参考：\n"
         f"- question_type 可选：{QUESTION_TYPES}\n"
         f"- knowledge_modules 可选：{KNOWLEDGE_MODULES}\n"
@@ -70,11 +102,13 @@ def _build_system_prompt() -> str:
         "- 检索到多道题目时，用 markdown 表格展示（列：题目ID | 年份 | 卷种 | 题号 | 题型 | 内容摘要）；单道题可直接展示完整内容。\n"
         "- 用户想看某道题的详细解答时，调用 get_question 后给出完整答案和解析。\n"
         "- 未检索到时如实告知，并建议调整关键词或条件。\n"
-        "- 严禁编造题目内容，所有信息必须来自工具检索结果。"
+        "- 严禁编造题目内容，所有信息必须来自工具检索结果。\n"
+        "- 若工具返回解析不可见提示，应如实告知用户当前角色无权查看解析，不要编造解析内容。"
     )
 
 
-def _execute_search_questions(args: dict) -> str:
+def _execute_search_questions(args: dict, role: str | None = None) -> str:
+    include_analysis = can_view_analysis(role) if role else True
     qids = search_questions(
         paper_type=args.get("paper_type"),
         question_no=args.get("question_no"),
@@ -84,6 +118,7 @@ def _execute_search_questions(args: dict) -> str:
         new_textbook_only=bool(args.get("new_textbook_only", False)),
         question_type=args.get("question_type"),
         knowledge_modules=args.get("knowledge_modules") or None,
+        include_analysis=include_analysis,
     )
     if not qids:
         return "未找到符合条件的题目。"
@@ -106,34 +141,74 @@ def _execute_search_questions(args: dict) -> str:
     return "\n".join(lines)
 
 
-def _execute_get_question(args: dict) -> str:
+def _execute_get_question(args: dict, role: str | None = None) -> str:
     qid = args.get("question_id")
     q = get_question_by_id(qid)
     if not q:
         return f"未找到ID为 {qid} 的题目。"
     if q["isInRecycleBin"] == 1:
         return f"题目ID {qid} 已在回收站中。"
-    return "\n".join([
+    show_analysis = can_view_analysis(role) if role else True
+    lines = [
         f"【题目ID】{q['questionID']}",
         f"【题目】{q['content']}",
         f"【答案】{q['answer']}",
-        f"【解析】{q['analysis']}",
-        f"【来源】{q['source']}",
-        f"【解析来源】{q['analysis_source']}",
-        f"【年份】{q['year'] or '未知'}",
-        f"【卷种】{q['paper_type'] or '未知'}",
-        f"【题号】{q['question_no'] or '未知'}",
-        f"【题型】{q['question_type'] or '未知'}",
-        f"【知识模块】{q['knowledge_modules'] or '未知'}",
-    ])
+    ]
+    if show_analysis:
+        lines.append(f"【解析】{q['analysis']}")
+        lines.append(f"【解析来源】{q['analysis_source']}")
+    else:
+        lines.append("【解析】当前角色无权查看解析内容")
+    lines.append(f"【来源】{q['source']}")
+    lines.append(f"【年份】{q['year'] or '未知'}")
+    lines.append(f"【卷种】{q['paper_type'] or '未知'}")
+    lines.append(f"【题号】{q['question_no'] or '未知'}")
+    lines.append(f"【题型】{q['question_type'] or '未知'}")
+    lines.append(f"【知识模块】{q['knowledge_modules'] or '未知'}")
+    return "\n".join(lines)
 
 
-def _execute_tool(name: str, args: dict) -> str:
+def _execute_get_question_notes(args: dict, role: str | None) -> str:
+    qid = args.get("question_id")
+    notes = get_question_notes(qid, viewer_role=role)
+    if not notes:
+        return f"题目ID {qid} 下没有可见备注。"
+    lines = [f"题目ID {qid} 共 {len(notes)} 条备注："]
+    for n in notes:
+        content = (n["content"] or "")[:200].replace("\n", " ")
+        lines.append(f"[备注ID {n['note_id']}] 类型:{n['type_name']} | {content}")
+    return "\n".join(lines)
+
+
+def _execute_search_notes(args: dict, role: str | None) -> str:
+    keyword = args.get("keyword")
+    notes = search_notes(keyword, note_type_name=args.get("note_type_name"), viewer_role=role)
+    if not notes:
+        return f"未找到内容含「{keyword}」的备注。"
+    lines = [f"共找到 {len(notes)} 条匹配备注：", ""]
+    lines.append("| 备注ID | 题目ID | 年份 | 卷种 | 题号 | 类型 | 内容摘要 |")
+    lines.append("|---:|---:|:---:|:---:|:---:|:---|:---|")
+    for n in notes[:15]:
+        content = (n["content"] or "")[:30].replace("\n", " ").replace("|", "／").strip()
+        lines.append(
+            f"| {n['note_id']} | {n['question_id']} | {n['year'] or ''} | "
+            f"{n['paper_type'] or ''} | {n['question_no'] or ''} | {n['type_name']} | {content} |"
+        )
+    if len(notes) > 15:
+        lines.append(f"\n还有 {len(notes) - 15} 条未列出。")
+    return "\n".join(lines)
+
+
+def _execute_tool(name: str, args: dict, role: str | None = None) -> str:
     try:
         if name == "search_questions":
-            return _execute_search_questions(args)
+            return _execute_search_questions(args, role)
         if name == "get_question":
-            return _execute_get_question(args)
+            return _execute_get_question(args, role)
+        if name == "get_question_notes":
+            return _execute_get_question_notes(args, role)
+        if name == "search_notes":
+            return _execute_search_notes(args, role)
         return f"未知工具: {name}"
     except Exception as e:
         return f"工具执行出错({name}): {e}"
@@ -156,6 +231,7 @@ def run_agent(
     api_key: str,
     base_url: str = DEFAULT_BASE_URL,
     model: str = DEFAULT_MODEL,
+    user_role: str | None = None,
 ):
     """
     运行 DeepSeek function-calling agent。
@@ -205,7 +281,7 @@ def run_agent(
                     targs = json.loads(fn["arguments"] or "{}")
                 except json.JSONDecodeError:
                     targs = {}
-                result = _execute_tool(tname, targs)
+                result = _execute_tool(tname, targs, role=user_role)
                 steps.append({"tool": tname, "args": targs, "result": result[:1500]})
                 working.append({
                     "role": "tool",

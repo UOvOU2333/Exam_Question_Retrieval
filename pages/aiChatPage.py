@@ -70,6 +70,7 @@ def ai_chat():
                     history=st.session_state.ai_messages[:-1],
                     user_input=prompt,
                     api_key=api_key,
+                    user_role=st.session_state.get("role"),
                 )
             st.markdown(answer)
         st.session_state.ai_messages.append({"role": "assistant", "content": answer})
