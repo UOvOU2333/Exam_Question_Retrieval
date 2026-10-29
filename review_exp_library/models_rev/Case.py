@@ -33,6 +33,7 @@ class Case(Base):
     status = Column(String(16), nullable=False, default="草稿")
     reject_comment = Column(Text)
     source_draft = Column(Text)
+    editor_in_charge = Column(Text)
 
     review_time = Column(Date)
     upload_time = Column(DateTime, default=datetime.utcnow, nullable=False)

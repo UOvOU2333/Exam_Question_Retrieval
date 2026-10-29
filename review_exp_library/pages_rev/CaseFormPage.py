@@ -33,7 +33,9 @@ def case_form_page(case_id=None):
             st.warning("该案例已提交审核，等待总编审核中，暂不可编辑。")
             return
 
-    st.subheader("编辑案例" if editing else "新建案例")
+    kid = case_id if case_id is not None else "new"
+
+    st.subheader(f"编辑案例 #{case_id}" if editing else "新建案例")
 
     if raw and raw.get("reject_comment"):
         st.error(f"退回意见：{raw['reject_comment']}")
@@ -44,25 +46,25 @@ def case_form_page(case_id=None):
         default_b = raw["book_id"] if raw else book_options[0][0]
         book_id = st.selectbox("书名", book_options,
                                index=[o[0] for o in book_options].index(default_b) if default_b in [o[0] for o in book_options] else 0,
-                               format_func=lambda x: x[1], key="cf_book")[0]
+                               format_func=lambda x: x[1], key=f"cf_{kid}_book")[0]
     with col_s:
         sec_options = [(s.id, s.name) for s in list_sections()]
         default_s = raw["section_id"] if raw else (sec_options[0][0] if sec_options else None)
         section_id = st.selectbox("问题与范例", sec_options,
                                   index=[o[0] for o in sec_options].index(default_s) if sec_options and default_s in [o[0] for o in sec_options] else 0,
-                                  format_func=lambda x: x[1], key="cf_section")[0]
+                                  format_func=lambda x: x[1], key=f"cf_{kid}_section")[0]
     with col_t:
         ct_options = [(c.id, c.name) for c in list_case_types(section_id)]
         default_ct = raw["case_type_id"] if raw else (ct_options[0][0] if ct_options else None)
         case_type_id = st.selectbox("案例类型", ct_options,
                                     index=[o[0] for o in ct_options].index(default_ct) if ct_options and default_ct in [o[0] for o in ct_options] else 0,
-                                    format_func=lambda x: x[1], key="cf_case_type")[0]
+                                    format_func=lambda x: x[1], key=f"cf_{kid}_case_type")[0]
     with col_sub:
         sub_options = [(s.id, s.name) for s in list_subjects()]
         default_sub = raw["subject_id"] if raw else (sub_options[0][0] if sub_options else None)
         subject_id = st.selectbox("模块", sub_options,
-                                  index=[o[0] for o in sub_options].index(default_sub) if sub_options and default_sub in [o[0] for o in sub_options] else 0,
-                                  format_func=lambda x: x[1], key="cf_subject")[0]
+                                  index=[o[0] for o in sub_options].index(default_sub) if default_sub and default_sub in [o[0] for o in sub_options] else 0,
+                                  format_func=lambda x: x[1], key=f"cf_{kid}_subject")[0]
 
     layout = get_field_layout_by_id(case_type_id)
     field_values = {}
@@ -70,15 +72,15 @@ def case_form_page(case_id=None):
         default_val = raw.get(spec.name, "") if raw else ""
         field_values[spec.name] = st.text_area(
             spec.label + (" *" if spec.required else ""),
-            value=default_val, height=120, key=f"cf_{spec.name}",
+            value=default_val, height=120, key=f"cf_{kid}_{spec.name}",
         )
 
     default_review = raw["review_time"] if raw and raw["review_time"] else date.today()
-    review_time = st.date_input("审稿时间 *", value=default_review, key="cf_review_time")
+    review_time = st.date_input("审稿时间 *", value=default_review, key=f"cf_{kid}_review_time")
 
     uploaded = st.file_uploader(
         "插入图片（可多选）", type=["png", "jpg", "jpeg", "gif", "webp", "bmp"],
-        accept_multiple_files=True, key="cf_images",
+        accept_multiple_files=True, key=f"cf_{kid}_images",
     )
 
     existing_images = raw.get("image_paths", []) if raw else []
@@ -91,13 +93,32 @@ def case_form_page(case_id=None):
                 except Exception:
                     st.warning("图片加载失败")
 
-    source_draft = st.text_input("来源稿件（可选）", value=raw.get("source_draft", "") if raw else "", key="cf_source")
+    source_draft = st.text_input("来源稿件（可选）", value=raw.get("source_draft", "") if raw else "", key=f"cf_{kid}_source")
 
-    col_save, col_submit = st.columns(2)
-    with col_save:
-        save_clicked = st.button("保存草稿", type="secondary", use_container_width=True)
-    with col_submit:
-        submit_clicked = st.button("提交审核", type="primary", use_container_width=True)
+    if editing:
+        editor_in_charge = st.text_input(
+            "负责编辑 *", value=raw.get("editor_in_charge", "") if raw else "",
+            disabled=not is_chief(user["role"]),
+            key=f"cf_{kid}_editor_in_charge",
+        )
+    else:
+        editor_in_charge = st.text_input(
+            "负责编辑 *", value=user["display_name"] or "",
+            disabled=True, key=f"cf_{kid}_editor_in_charge",
+        )
+
+    is_published = raw and raw.get("status") == "已发布"
+    save_label = "保存" if is_published else "保存草稿"
+
+    if is_published:
+        save_clicked = st.button(save_label, type="primary", use_container_width=True, key=f"cf_{kid}_save")
+        submit_clicked = False
+    else:
+        col_save, col_submit = st.columns(2)
+        with col_save:
+            save_clicked = st.button(save_label, type="secondary", use_container_width=True, key=f"cf_{kid}_save")
+        with col_submit:
+            submit_clicked = st.button("提交审核", type="primary", use_container_width=True, key=f"cf_{kid}_submit")
 
     if not (save_clicked or submit_clicked):
         return
@@ -114,18 +135,18 @@ def case_form_page(case_id=None):
         why_modify=field_values.get("why_modify"), modify_note=field_values.get("modify_note"),
         content=field_values.get("content"), analysis=field_values.get("analysis"),
         why_good=field_values.get("why_good"), review_time=review_time,
-        source_draft=source_draft, image_paths=image_paths,
+        source_draft=source_draft, editor_in_charge=editor_in_charge,
+        image_paths=image_paths,
     )
 
     try:
         if save_clicked:
             if editing:
                 update_case(case_id, data, user["id"], raw.get("update_time"))
-                st.success("草稿已保存")
+                st.success("已保存")
             else:
                 new_id = create_draft(data, user["id"])
                 st.success(f"草稿已保存，编号 #{new_id}")
-                st.session_state["cf_editing_id"] = new_id
         elif submit_clicked:
             if editing:
                 update_case(case_id, data, user["id"], raw.get("update_time"))
@@ -135,6 +156,9 @@ def case_form_page(case_id=None):
                 new_id = create_draft(data, user["id"])
                 submit_for_review(new_id, user["id"])
                 st.success(f"已提交审核，编号 #{new_id}")
+        if "my_editing_id" in st.session_state:
+            st.session_state.pop("my_editing_id", None)
+            st.rerun()
     except (ValidationError, PermissionError, StateTransitionError,
             ConcurrentUpdateError, NotFoundError) as e:
         st.error(str(e))

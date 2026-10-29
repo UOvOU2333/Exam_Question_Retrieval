@@ -40,6 +40,18 @@ def get_session():
         session.close()
 
 
+def _migrate(eng):
+    from sqlalchemy import inspect, text
+
+    insp = inspect(eng)
+    if "cases" not in insp.get_table_names():
+        return
+    cols = {c["name"] for c in insp.get_columns("cases")}
+    if "editor_in_charge" not in cols:
+        with eng.begin() as conn:
+            conn.execute(text("ALTER TABLE cases ADD COLUMN editor_in_charge TEXT"))
+
+
 def init_db():
     import hashlib
     from models_rev.User import User
@@ -52,6 +64,7 @@ def init_db():
     from models_rev.Subject import Subject
 
     Base.metadata.create_all(engine)
+    _migrate(engine)
     with get_session() as s:
         from utils_rev.config import (
             ADMIN_DEFAULT_USERNAME, ADMIN_DEFAULT_PASSWORD,

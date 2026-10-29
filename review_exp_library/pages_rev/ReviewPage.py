@@ -28,7 +28,7 @@ def review_page():
                 if detail:
                     render_case_detail(detail)
 
-            col_pub, col_rej = st.columns(2)
+            col_pub, col_rej = st.columns([1,3])
             with col_pub:
                 if st.button("通过并发布", key=f"pub_{sm.id}", type="primary"):
                     try:

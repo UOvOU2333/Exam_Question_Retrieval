@@ -22,6 +22,7 @@ class CaseInput:
     why_good: Optional[str] = None
     review_time: Optional[date] = None
     source_draft: Optional[str] = None
+    editor_in_charge: Optional[str] = None
     image_paths: List[str] = field(default_factory=list)
 
 
@@ -66,6 +67,7 @@ class CaseDetail:
     review_at: Optional[datetime]
     creator_display_name: str
     reviewer_display_name: Optional[str]
+    editor_in_charge: Optional[str] = None
 
 
 @dataclass

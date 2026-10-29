@@ -61,6 +61,11 @@ def review_exp_library_page():
 
     site_header()
 
+    pending_edit = st.session_state.pop("rev_pending_edit_id", None)
+    if pending_edit is not None:
+        st.session_state["rev_edit_id"] = pending_edit
+        st.session_state["rev_subnav_menu"] = "新建案例"
+
     menu = _render_rev_subnav()
     user = get_current_user()
     logged_in = user is not None

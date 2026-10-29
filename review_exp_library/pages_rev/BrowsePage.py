@@ -16,6 +16,8 @@ def browse_page():
 
     st.subheader("浏览与搜索")
 
+    show_diff = st.checkbox("标注修改增删（红绿荧光笔）", value=True, key="br_show_diff")
+
     col_b, col_s, col_t, col_sub = st.columns(4)
     with col_b:
         book_options = [(0, "全部")] + [(b.id, b.name) for b in list_books()]
@@ -87,4 +89,4 @@ def browse_page():
     summaries.sort(key=lambda x: x.update_time, reverse=True)
 
     st.caption(f"共 {total} 条")
-    render_case_list(summaries)
+    render_case_list(summaries, show_diff=show_diff)

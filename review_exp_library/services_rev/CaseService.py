@@ -57,6 +57,7 @@ def _apply_fields(case: Case, data: CaseInput):
     case.why_good = data.why_good
     case.review_time = data.review_time
     case.source_draft = data.source_draft
+    case.editor_in_charge = data.editor_in_charge
 
 
 def create_draft(data: CaseInput, owner_id: int) -> int:
@@ -75,6 +76,9 @@ def create_draft(data: CaseInput, owner_id: int) -> int:
     with get_session() as s:
         s.add(case)
         s.flush()
+        if not case.editor_in_charge:
+            operator = s.query(User).filter_by(id=owner_id).first()
+            case.editor_in_charge = operator.display_name if operator else str(owner_id)
         for p in data.image_paths:
             s.add(CaseImage(case_id=case.id, path=p, uploaded_at=now))
         operator = s.query(User).filter_by(id=owner_id).first()
@@ -116,11 +120,6 @@ def update_case(case_id: int, data: CaseInput, editor_id: int, loaded_updated_at
         _apply_fields(case, data)
         case.update_time = datetime.utcnow()
 
-        if case.status == "已发布":
-            case.status = "待总编审核"
-            case.reviewer_id = None
-            case.review_at = None
-
         if data.image_paths:
             s.query(CaseImage).filter_by(case_id=case.id).delete()
             now = datetime.utcnow()
@@ -137,6 +136,8 @@ def submit_for_review(case_id: int, editor_id: int) -> bool:
         case = s.query(Case).filter_by(id=case_id).first()
         if not case:
             raise NotFoundError("案例不存在")
+        if case.status == "待总编审核":
+            return True
         if case.status not in ("草稿", "已退回"):
             raise StateTransitionError(f"当前状态 {case.status} 不可提交审核")
 
@@ -246,8 +247,8 @@ def list_cases(
                 id=c.id,
                 book_id=c.book_id, section_id=c.section_id,
                 case_type_id=c.case_type_id, subject_id=c.subject_id,
-                book=names.get(c.book_id, ""), section=names.get(c.section_id, ""),
-                case_type=names.get(c.case_type_id, ""), subject=names.get(c.subject_id, ""),
+                book=names["book"].get(c.book_id, ""), section=names["section"].get(c.section_id, ""),
+                case_type=names["case_type"].get(c.case_type_id, ""), subject=names["subject"].get(c.subject_id, ""),
                 title_summary=title_sum, status=c.status,
                 review_time=c.review_time, upload_time=c.upload_time,
                 update_time=c.update_time,
@@ -277,13 +278,14 @@ def get_case_detail(case_id: int):
             id=c.id,
             book_id=c.book_id, section_id=c.section_id,
             case_type_id=c.case_type_id, subject_id=c.subject_id,
-            book=names.get(c.book_id, ""), section=names.get(c.section_id, ""),
-            case_type=names.get(c.case_type_id, ""), subject=names.get(c.subject_id, ""),
+            book=names["book"].get(c.book_id, ""), section=names["section"].get(c.section_id, ""),
+            case_type=names["case_type"].get(c.case_type_id, ""), subject=names["subject"].get(c.subject_id, ""),
             fields=fields, image_paths=images, status=c.status,
             reject_comment=c.reject_comment, review_time=c.review_time,
             upload_time=c.upload_time, update_time=c.update_time, review_at=c.review_at,
             creator_display_name=creator.display_name if creator else "",
             reviewer_display_name=reviewer.display_name if reviewer else None,
+            editor_in_charge=c.editor_in_charge or "",
         )
 
 
@@ -303,5 +305,6 @@ def get_case_raw(case_id: int):
             "why_good": c.why_good or "",
             "review_time": c.review_time, "status": c.status,
             "reject_comment": c.reject_comment, "update_time": c.update_time,
+            "editor_in_charge": c.editor_in_charge or "",
             "image_paths": images,
         }
