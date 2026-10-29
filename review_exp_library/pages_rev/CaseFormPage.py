@@ -1,4 +1,4 @@
-"""案例新建/编辑表单页。"""
+"""案例新建/编辑表单页（分类 ID 驱动）。"""
 
 from datetime import date
 
@@ -9,7 +9,7 @@ from services_rev.CaseService import (
     create_draft, update_case, submit_for_review, get_case_raw,
 )
 from services_rev.CatalogService import (
-    get_books, get_sections, get_case_types, get_subjects, get_field_layout,
+    list_books, list_sections, list_case_types, list_subjects, get_field_layout_by_id,
 )
 from services_rev.ImageService import save_image
 from utils_rev.dto import CaseInput
@@ -38,26 +38,33 @@ def case_form_page(case_id=None):
     if raw and raw.get("reject_comment"):
         st.error(f"退回意见：{raw['reject_comment']}")
 
-    books = get_books()
-    sections = get_sections()
-    default_book_idx = books.index(raw["book"]) if raw else 0
-    default_section_idx = sections.index(raw["section"]) if raw else 0
-
     col_b, col_s, col_t, col_sub = st.columns(4)
     with col_b:
-        book = st.selectbox("书名", books, index=default_book_idx, key="cf_book")
+        book_options = [(b.id, b.name) for b in list_books()]
+        default_b = raw["book_id"] if raw else book_options[0][0]
+        book_id = st.selectbox("书名", book_options,
+                               index=[o[0] for o in book_options].index(default_b) if default_b in [o[0] for o in book_options] else 0,
+                               format_func=lambda x: x[1], key="cf_book")[0]
     with col_s:
-        section = st.selectbox("一级板块", sections, index=default_section_idx, key="cf_section")
-    case_types = get_case_types(section)
-    default_ct_idx = case_types.index(raw["case_type"]) if raw and raw["case_type"] in case_types else 0
+        sec_options = [(s.id, s.name) for s in list_sections()]
+        default_s = raw["section_id"] if raw else (sec_options[0][0] if sec_options else None)
+        section_id = st.selectbox("板块", sec_options,
+                                  index=[o[0] for o in sec_options].index(default_s) if sec_options and default_s in [o[0] for o in sec_options] else 0,
+                                  format_func=lambda x: x[1], key="cf_section")[0]
     with col_t:
-        case_type = st.selectbox("案例类型", case_types, index=default_ct_idx, key="cf_case_type")
-    subjects = get_subjects()
-    default_sub_idx = subjects.index(raw["subject"]) if raw else 0
+        ct_options = [(c.id, c.name) for c in list_case_types(section_id)]
+        default_ct = raw["case_type_id"] if raw else (ct_options[0][0] if ct_options else None)
+        case_type_id = st.selectbox("案例类型", ct_options,
+                                    index=[o[0] for o in ct_options].index(default_ct) if ct_options and default_ct in [o[0] for o in ct_options] else 0,
+                                    format_func=lambda x: x[1], key="cf_case_type")[0]
     with col_sub:
-        subject = st.selectbox("学科板块", subjects, index=default_sub_idx, key="cf_subject")
+        sub_options = [(s.id, s.name) for s in list_subjects()]
+        default_sub = raw["subject_id"] if raw else (sub_options[0][0] if sub_options else None)
+        subject_id = st.selectbox("学科", sub_options,
+                                  index=[o[0] for o in sub_options].index(default_sub) if sub_options and default_sub in [o[0] for o in sub_options] else 0,
+                                  format_func=lambda x: x[1], key="cf_subject")[0]
 
-    layout = get_field_layout(case_type)
+    layout = get_field_layout_by_id(case_type_id)
     field_values = {}
     for spec in layout:
         default_val = raw.get(spec.name, "") if raw else ""
@@ -101,7 +108,7 @@ def case_form_page(case_id=None):
             image_paths.append(save_image(f))
 
     data = CaseInput(
-        book=book, section=section, case_type=case_type, subject=subject,
+        book_id=book_id, section_id=section_id, case_type_id=case_type_id, subject_id=subject_id,
         title=field_values.get("title"), content_before=field_values.get("content_before"),
         content_after=field_values.get("content_after"), modify_reason=field_values.get("modify_reason"),
         why_modify=field_values.get("why_modify"), modify_note=field_values.get("modify_note"),

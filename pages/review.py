@@ -35,6 +35,8 @@ def _render_rev_subnav() -> str:
                 sac.MenuItem('待审核', icon='clipboard-check'),
                 sac.MenuItem('归档与备份', icon='archive'),
                 sac.MenuItem('成员管理', icon='people'),
+                sac.MenuItem('分类管理', icon='diagram-3'),
+                sac.MenuItem('我的账号', icon='gear'),
                 sac.MenuItem('登录', icon='lock'),
             ],
             open_all=True,
@@ -52,7 +54,7 @@ def review_exp_library_page():
     from pages_rev.SiteHeader import site_header
     from services_rev.AuthService import get_current_user
     from utils_rev.permissions import has_permission
-    from utils.navbar_utils import sj_navbar as main_navbar
+    from utils.navbar_utils import navbar as main_navbar
 
     with st.sidebar:
         main_navbar("review")
@@ -109,6 +111,22 @@ def review_exp_library_page():
         else:
             from pages_rev.ManagePage import manage_page
             manage_page()
+    elif menu == "分类管理":
+        if not logged_in:
+            st.warning("请先登录")
+            from pages_rev.LoginPage import login
+            login()
+        else:
+            from pages_rev.CategoryManagePage import category_manage_page
+            category_manage_page()
+    elif menu == "我的账号":
+        if not logged_in:
+            st.warning("请先登录")
+            from pages_rev.LoginPage import login
+            login()
+        else:
+            from pages_rev.AccountPage import account_page
+            account_page()
     elif menu == "登录":
         from pages_rev.LoginPage import login
         login()

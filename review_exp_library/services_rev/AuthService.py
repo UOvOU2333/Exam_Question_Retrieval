@@ -6,6 +6,7 @@ import streamlit as st
 
 from models_rev.User import User
 from models_rev.db import get_session
+from utils_rev.permissions import has_permission
 
 
 def _hash(password: str) -> str:
@@ -68,7 +69,6 @@ def require_login():
 
 
 def require_permission(perm):
-    from utils_rev.permissions import has_permission
     role = st.session_state.get("rev_role")
     if not has_permission(role, perm):
         st.error("无权限执行该操作")

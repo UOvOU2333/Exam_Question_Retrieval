@@ -13,6 +13,6 @@ class OperationLog(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     operator = Column(String(64), nullable=False)
     case_id = Column(Integer, nullable=True)
-    action = Column(String(16), nullable=False)
+    action = Column(String(32), nullable=False)
     detail = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

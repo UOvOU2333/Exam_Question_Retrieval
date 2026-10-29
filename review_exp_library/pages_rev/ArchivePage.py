@@ -2,17 +2,51 @@
 
 import streamlit as st
 
-from services_rev.ArchiveService import list_archived, restore, delete_case, backup_export
+from services_rev.ArchiveService import list_archived, restore, delete_case, backup_export, backup_import
 from services_rev.AuthService import get_current_user, require_permission
-from utils_rev.exceptions import StateTransitionError, NotFoundError
+from utils_rev.exceptions import StateTransitionError, NotFoundError, ValidationError
 
 
 def archive_page():
     require_permission("archive")
     user = get_current_user()
-    st.subheader("归档区与数据备份")
 
-    st.markdown("### 归档案例")
+    st.subheader("数据备份")
+    col_exp, col_down, col_imp = st.columns(3)
+    with col_exp:
+        if st.button("生成备份（ZIP）", use_container_width=True):
+            data = backup_export()
+            with col_down:
+                st.download_button(
+                    "下载备份文件", data=data,
+                    file_name=f"review_backup_{__import__('datetime').datetime.now():%Y%m%d_%H%M}.zip",
+                    mime="application/zip",
+                    use_container_width=True,
+                    type="primary"
+                )
+    with col_imp:
+        with st.expander("从备份文件恢复"):
+            uploaded = st.file_uploader(
+                "选择备份 ZIP 文件", type=["zip"],
+                key="restore_backup_zip",
+            )
+            if uploaded is not None:
+                st.warning("恢复操作将向数据库新增案例数据，不会覆盖现有记录。")
+                if st.button("确认恢复", type="primary", key="confirm_restore_backup"):
+                    try:
+                        result = backup_import(uploaded.getvalue(), user["id"])
+                        st.success(
+                            f"恢复完成：共 {result.total} 条，导入 {result.imported} 条，"
+                            f"跳过 {result.skipped} 条，图片还原 {result.images_restored} 张。"
+                        )
+                        if result.skipped_details:
+                            with st.expander(f"查看跳过详情（{len(result.skipped_details)}）"):
+                                for d in result.skipped_details:
+                                    st.text(d)
+                    except ValidationError as e:
+                        st.error(str(e))
+
+    st.subheader("归档区")
     archived = list_archived()
     if not archived:
         st.info("暂无归档案例")
@@ -39,11 +73,4 @@ def archive_page():
                     except NotFoundError as e:
                         st.error(str(e))
 
-    st.markdown("### 数据备份")
-    if st.button("生成备份（ZIP）"):
-        data = backup_export()
-        st.download_button(
-            "下载备份文件", data=data,
-            file_name=f"review_backup_{__import__('datetime').datetime.now():%Y%m%d_%H%M}.zip",
-            mime="application/zip",
-        )
+

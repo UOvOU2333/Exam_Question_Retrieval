@@ -11,15 +11,25 @@ from utils_rev.exceptions import StateTransitionError, ValidationError, NotFound
 
 
 def list_pending_review():
+    from services_rev.CatalogService import _names_map
     with get_session() as s:
         rows = s.query(Case).filter_by(status="待总编审核").order_by(Case.update_time.desc()).all()
+        book_ids, section_ids, case_type_ids, subject_ids = set(), set(), set(), set()
+        for c in rows:
+            book_ids.add(c.book_id); section_ids.add(c.section_id)
+            case_type_ids.add(c.case_type_id); subject_ids.add(c.subject_id)
+        names = _names_map(book_ids, section_ids, case_type_ids, subject_ids)
         out = []
         for c in rows:
             creator = s.query(User).filter_by(id=c.created_by_id).first()
             title_sum = (c.title or c.content or c.content_before or "")[:60]
             out.append(CaseSummary(
-                id=c.id, book=c.book, section=c.section, case_type=c.case_type,
-                subject=c.subject, title_summary=title_sum, status=c.status,
+                id=c.id,
+                book_id=c.book_id, section_id=c.section_id,
+                case_type_id=c.case_type_id, subject_id=c.subject_id,
+                book=names.get(c.book_id, ""), section=names.get(c.section_id, ""),
+                case_type=names.get(c.case_type_id, ""), subject=names.get(c.subject_id, ""),
+                title_summary=title_sum, status=c.status,
                 review_time=c.review_time, upload_time=c.upload_time,
                 update_time=c.update_time,
                 display_name=creator.display_name if creator else "",

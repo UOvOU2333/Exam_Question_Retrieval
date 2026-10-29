@@ -15,10 +15,10 @@ class Case(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
 
-    book = Column(String(64), nullable=False)
-    section = Column(String(32), nullable=False)
-    case_type = Column(String(32), nullable=False)
-    subject = Column(String(32), nullable=False)
+    book_id = Column(Integer, ForeignKey("books.id"), nullable=False, index=True)
+    section_id = Column(Integer, ForeignKey("sections.id"), nullable=False, index=True)
+    case_type_id = Column(Integer, ForeignKey("case_types.id"), nullable=False, index=True)
+    subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False, index=True)
 
     title = Column(Text)
     content_before = Column(Text)
@@ -50,9 +50,13 @@ class Case(Base):
     )
     creator = relationship("User", foreign_keys=[created_by_id])
     reviewer = relationship("User", foreign_keys=[reviewer_id])
+    book = relationship("Book", foreign_keys=[book_id])
+    section = relationship("Section", foreign_keys=[section_id])
+    case_type = relationship("CaseType", foreign_keys=[case_type_id])
+    subject = relationship("Subject", foreign_keys=[subject_id])
 
     __table_args__ = (
-        Index("idx_catalog_status", "book", "section", "case_type", "subject", "status"),
+        Index("idx_catalog_status", "book_id", "section_id", "case_type_id", "subject_id", "status"),
         Index("idx_status", "status"),
         Index("idx_update_time", "update_time"),
         Index("idx_upload_time", "upload_time"),
