@@ -12,6 +12,7 @@ from services_rev.CatalogService import (
     list_books, list_sections, list_case_types, list_subjects, get_field_layout_by_id,
 )
 from services_rev.ImageService import save_image
+from services_rev.MemberService import list_members
 from utils_rev.dto import CaseInput
 from utils_rev.exceptions import (
     ValidationError, PermissionError, StateTransitionError,
@@ -20,7 +21,7 @@ from utils_rev.exceptions import (
 from utils_rev.permissions import is_chief
 
 
-def case_form_page(case_id=None):
+def case_form_page(case_id=None, keep_status: bool = False):
     user = get_current_user()
     editing = case_id is not None
     raw = None
@@ -29,13 +30,17 @@ def case_form_page(case_id=None):
         if not raw:
             st.error("案例不存在")
             return
-        if raw["status"] == "待总编审核" and not is_chief(user["role"]):
+        if raw["status"] == "待总编审核" and not is_chief(user["role"]) and not keep_status:
             st.warning("该案例已提交审核，等待总编审核中，暂不可编辑。")
             return
 
     kid = case_id if case_id is not None else "new"
+    chief = is_chief(user["role"])
 
-    st.subheader(f"编辑案例 #{case_id}" if editing else "新建案例")
+    if keep_status:
+        st.subheader(f"编辑案例 #{case_id}（保持状态）")
+    else:
+        st.subheader(f"编辑案例 #{case_id}" if editing else "新建案例")
 
     if raw and raw.get("reject_comment"):
         st.error(f"退回意见：{raw['reject_comment']}")
@@ -75,6 +80,18 @@ def case_form_page(case_id=None):
             value=default_val, height=120, key=f"cf_{kid}_{spec.name}",
         )
 
+    with st.expander("插入图片到正文（生成 Markdown 代码）", expanded=False):
+        _inline_img = st.file_uploader(
+            "选择图片（png / jpg / jpeg / gif / webp / bmp）",
+            type=["png", "jpg", "jpeg", "gif", "webp", "bmp"],
+            key=f"cf_{kid}_inline_img",
+        )
+        if _inline_img:
+            _inline_rel = save_image(_inline_img)
+            _md = f"![图片说明]({_inline_rel})"
+            st.success("图片已生成，复制下面的 Markdown 代码，粘贴到上方任意正文区域即可：")
+            st.code(_md, language="markdown")
+
     default_review = raw["review_time"] if raw and raw["review_time"] else date.today()
     review_time = st.date_input("审稿时间 *", value=default_review, key=f"cf_{kid}_review_time")
 
@@ -95,28 +112,49 @@ def case_form_page(case_id=None):
 
     source_draft = st.text_input("来源稿件（可选）", value=raw.get("source_draft", "") if raw else "", key=f"cf_{kid}_source")
 
+    members = list_members(include_deleted=False)
+    mem_options = {m.id: m.display_name for m in members}
+    mem_ids = [m.id for m in members]
+
     if editing:
-        editor_in_charge = st.text_input(
-            "负责编辑 *", value=raw.get("editor_in_charge", "") if raw else "",
-            disabled=not is_chief(user["role"]),
-            key=f"cf_{kid}_editor_in_charge",
+        default_owners = raw.get("owner_ids") if raw else []
+        if not default_owners:
+            default_owners = [raw.get("created_by_id")] if raw else []
+        owner_ids = st.multiselect(
+            "负责人 *",
+            options=mem_ids,
+            default=[uid for uid in default_owners if uid in mem_ids],
+            format_func=lambda x: mem_options.get(x, str(x)),
+            disabled=not chief,
+            key=f"cf_{kid}_owners",
         )
     else:
-        editor_in_charge = st.text_input(
-            "负责编辑 *", value=user["display_name"] or "",
-            disabled=True, key=f"cf_{kid}_editor_in_charge",
+        owner_ids = st.multiselect(
+            "负责人 *",
+            options=mem_ids,
+            default=[user["id"]] if user["id"] in mem_ids else [],
+            format_func=lambda x: mem_options.get(x, str(x)),
+            disabled=True,
+            key=f"cf_{kid}_owners",
         )
 
-    is_published = raw and raw.get("status") == "已发布"
-    save_label = "保存" if is_published else "保存草稿"
+    editor_in_charge = "、".join(mem_options.get(uid, str(uid)) for uid in owner_ids)
 
-    if is_published:
-        save_clicked = st.button(save_label, type="primary", use_container_width=True, key=f"cf_{kid}_save")
+    created_by_id = None
+    if editing and chief:
+        default_owner = raw.get("created_by_id") if raw else None
+        owner_idx = mem_ids.index(default_owner) if default_owner in mem_ids else 0
+        created_by_id = st.selectbox("创建者", mem_ids, index=owner_idx,
+                                     format_func=lambda x: mem_options.get(x, str(x)),
+                                     key=f"cf_{kid}_creator")
+
+    if keep_status:
+        save_clicked = st.button("保存", type="primary", use_container_width=True, key=f"cf_{kid}_save")
         submit_clicked = False
     else:
         col_save, col_submit = st.columns(2)
         with col_save:
-            save_clicked = st.button(save_label, type="secondary", use_container_width=True, key=f"cf_{kid}_save")
+            save_clicked = st.button("保存草稿", type="secondary", use_container_width=True, key=f"cf_{kid}_save")
         with col_submit:
             submit_clicked = st.button("提交审核", type="primary", use_container_width=True, key=f"cf_{kid}_submit")
 
@@ -136,20 +174,22 @@ def case_form_page(case_id=None):
         content=field_values.get("content"), analysis=field_values.get("analysis"),
         why_good=field_values.get("why_good"), review_time=review_time,
         source_draft=source_draft, editor_in_charge=editor_in_charge,
+        created_by_id=created_by_id,
+        owner_ids=owner_ids,
         image_paths=image_paths,
     )
 
     try:
         if save_clicked:
             if editing:
-                update_case(case_id, data, user["id"], raw.get("update_time"))
-                st.success("已保存")
+                update_case(case_id, data, user["id"], raw.get("update_time"), keep_status=keep_status)
+                st.success("草稿已保存")
             else:
                 new_id = create_draft(data, user["id"])
                 st.success(f"草稿已保存，编号 #{new_id}")
         elif submit_clicked:
             if editing:
-                update_case(case_id, data, user["id"], raw.get("update_time"))
+                update_case(case_id, data, user["id"], raw.get("update_time"), keep_status=keep_status)
                 submit_for_review(case_id, user["id"])
                 st.success("已提交审核")
             else:

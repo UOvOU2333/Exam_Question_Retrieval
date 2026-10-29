@@ -7,6 +7,7 @@ import streamlit as st
 
 from services_rev.ImageService import abs_path
 from utils_rev.dto import CaseDetail
+from utils_rev.render_utils import render_markdown, safe_render_image
 
 _DIFF_DEL_STYLE = "background-color:#f8d7da;color:#842029"
 _DIFF_INS_STYLE = "background-color:#d1e7dd;color:#0f5132"
@@ -32,7 +33,7 @@ def _render_diff(before: str, after: str):
     st.markdown("".join(parts), unsafe_allow_html=True)
 
 
-def render_case_detail(detail: CaseDetail, show_diff: bool = True):
+def render_case_detail(detail: CaseDetail, show_diff: bool = True, keyword: str | None = None):
     st.markdown(
         f"**书名**：{detail.book} ｜ "
         f"**问题与范例**：{detail.section} ｜ "
@@ -52,7 +53,7 @@ def render_case_detail(detail: CaseDetail, show_diff: bool = True):
         if not (value and value.strip()):
             continue
         st.markdown(f"#### {label}")
-        st.markdown(value)
+        render_markdown(value, keyword=keyword)
 
     if show_diff and before_value.strip() and after_value.strip():
         st.markdown("#### 对比")
@@ -61,10 +62,7 @@ def render_case_detail(detail: CaseDetail, show_diff: bool = True):
     if detail.image_paths:
         st.markdown("#### 图片")
         for rel in detail.image_paths:
-            try:
-                st.image(abs_path(rel))
-            except Exception:
-                st.warning("图片加载失败")
+            safe_render_image(abs_path(rel))
 
     st.markdown("---")
     col1, col2, col3 = st.columns(3)
@@ -76,8 +74,12 @@ def render_case_detail(detail: CaseDetail, show_diff: bool = True):
         st.caption(f"更新时间：{detail.update_time:%Y-%m-%d %H:%M}")
 
     meta = f"提交编辑：{detail.creator_display_name}"
-    if detail.editor_in_charge:
+    if detail.owner_names:
+        meta += f" ｜ 负责人：{detail.owner_names}"
+    elif detail.editor_in_charge:
         meta += f" ｜ 负责编辑：{detail.editor_in_charge}"
+    if detail.submitter_display_name:
+        meta += f" ｜ 提交人：{detail.submitter_display_name}"
     if detail.reviewer_display_name:
         meta += f" ｜ 审稿人：{detail.reviewer_display_name}"
     st.caption(meta)

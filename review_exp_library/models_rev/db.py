@@ -50,6 +50,9 @@ def _migrate(eng):
     if "editor_in_charge" not in cols:
         with eng.begin() as conn:
             conn.execute(text("ALTER TABLE cases ADD COLUMN editor_in_charge TEXT"))
+    if "submitted_by_id" not in cols:
+        with eng.begin() as conn:
+            conn.execute(text("ALTER TABLE cases ADD COLUMN submitted_by_id INTEGER"))
 
 
 def init_db():
@@ -57,6 +60,7 @@ def init_db():
     from models_rev.User import User
     from models_rev.Case import Case
     from models_rev.CaseImage import CaseImage
+    from models_rev.CaseOwner import CaseOwner
     from models_rev.OperationLog import OperationLog
     from models_rev.Book import Book
     from models_rev.Section import Section
