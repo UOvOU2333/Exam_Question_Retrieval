@@ -88,14 +88,13 @@ def case_form_page(case_id=None, keep_status: bool = False):
             key=f"cf_{kid}_inline_img",
         )
         if _inline_img:
-            from services_rev.ImageService import abs_path
             _inline_rel = save_image(_inline_img)
-            _md = f"\n\n![图片说明]({_inline_rel})\n\n"
-            st.image(abs_path(_inline_rel))
+            _md_clean = f"![图片说明]({_inline_rel})"
+            st.code(_md_clean, language="markdown")
             if st.button("插入到正文", type="primary", key=f"cf_{kid}_img_insert_btn"):
                 _tkey = f"cf_{kid}_{_target[0]}"
                 _cur = st.session_state.get(_tkey, (raw.get(_target[0], "") if raw else ""))
-                st.session_state[_tkey] = (_cur or "") + _md
+                st.session_state[_tkey] = (_cur or "") + f"\n\n{_md_clean}\n\n"
                 st.rerun()
 
     field_values = {}
