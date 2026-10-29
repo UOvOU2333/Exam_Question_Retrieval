@@ -23,6 +23,8 @@ class CaseInput:
     review_time: Optional[date] = None
     source_draft: Optional[str] = None
     editor_in_charge: Optional[str] = None
+    created_by_id: Optional[int] = None
+    owner_ids: List[int] = field(default_factory=list)
     image_paths: List[str] = field(default_factory=list)
 
 
@@ -44,6 +46,8 @@ class CaseSummary:
     update_time: datetime
     display_name: str
     reviewer_name: Optional[str] = None
+    submitter_name: Optional[str] = None
+    owner_names: str = ""
 
 
 @dataclass
@@ -68,6 +72,8 @@ class CaseDetail:
     creator_display_name: str
     reviewer_display_name: Optional[str]
     editor_in_charge: Optional[str] = None
+    owner_names: str = ""
+    submitter_display_name: Optional[str] = None
 
 
 @dataclass

@@ -42,6 +42,7 @@ class Case(Base):
 
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     reviewer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    submitted_by_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
     images = relationship(
         "CaseImage",
@@ -51,6 +52,7 @@ class Case(Base):
     )
     creator = relationship("User", foreign_keys=[created_by_id])
     reviewer = relationship("User", foreign_keys=[reviewer_id])
+    submitter = relationship("User", foreign_keys=[submitted_by_id])
     book = relationship("Book", foreign_keys=[book_id])
     section = relationship("Section", foreign_keys=[section_id])
     case_type = relationship("CaseType", foreign_keys=[case_type_id])

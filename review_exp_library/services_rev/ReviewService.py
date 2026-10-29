@@ -22,6 +22,10 @@ def list_pending_review():
         out = []
         for c in rows:
             creator = s.query(User).filter_by(id=c.created_by_id).first()
+            submitter = s.query(User).filter_by(id=c.submitted_by_id).first() if c.submitted_by_id else None
+            from models_rev.CaseOwner import CaseOwner
+            owner_rows = s.query(User).join(CaseOwner, CaseOwner.user_id == User.id).filter(CaseOwner.case_id == c.id).all()
+            owner_names = "、".join(u.display_name for u in owner_rows)
             title_sum = (c.title or c.content or c.content_before or "")[:60]
             out.append(CaseSummary(
                 id=c.id,
@@ -33,6 +37,8 @@ def list_pending_review():
                 review_time=c.review_time, upload_time=c.upload_time,
                 update_time=c.update_time,
                 display_name=creator.display_name if creator else "",
+                submitter_name=submitter.display_name if submitter else None,
+                owner_names=owner_names,
             ))
         return out
 

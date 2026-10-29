@@ -13,6 +13,16 @@ def browse_page():
     require_login()
     user = get_current_user()
     role = user["role"]
+    chief = is_chief(role)
+
+    editing_id = st.session_state.get("rev_browse_editing_id")
+    if editing_id is not None:
+        if st.button("← 返回浏览", key="br_back", type="secondary"):
+            st.session_state.pop("rev_browse_editing_id", None)
+            st.rerun()
+        from pages_rev.CaseFormPage import case_form_page
+        case_form_page(case_id=editing_id)
+        return
 
     st.subheader("浏览与搜索")
 
@@ -89,4 +99,4 @@ def browse_page():
     summaries.sort(key=lambda x: x.update_time, reverse=True)
 
     st.caption(f"共 {total} 条")
-    render_case_list(summaries, show_diff=show_diff)
+    render_case_list(summaries, show_diff=show_diff, is_chief=chief, user_id=user["id"], keyword=kw)
