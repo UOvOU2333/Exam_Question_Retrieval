@@ -1,7 +1,5 @@
 """成员管理页：参考题库 pages/userManagePage.py 风格。"""
 
-from turtle import left
-
 import streamlit as st
 
 from services_rev.AuthService import get_current_user, require_permission
