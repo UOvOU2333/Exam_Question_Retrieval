@@ -1,4 +1,4 @@
-"""Section 模型（板块实体，全局共享不隶属书）。"""
+"""Section 模型（问题与范例实体，全局共享不隶属书）。"""
 
 from datetime import datetime
 

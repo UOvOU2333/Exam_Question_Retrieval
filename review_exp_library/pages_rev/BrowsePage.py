@@ -22,7 +22,7 @@ def browse_page():
         book_id = st.selectbox("书名", book_options, format_func=lambda x: x[1], key="br_book")[0]
     with col_s:
         section_options = [(0, "全部")] + [(s.id, s.name) for s in list_sections()]
-        section_id = st.selectbox("板块", section_options, format_func=lambda x: x[1], key="br_section")[0]
+        section_id = st.selectbox("问题与范例", section_options, format_func=lambda x: x[1], key="br_section")[0]
     with col_t:
         ct_options = [(0, "全部")]
         if section_id != 0:
@@ -33,7 +33,7 @@ def browse_page():
         sub_options = [(0, "全部")]
         for sub in list_subjects():
             sub_options.append((sub.id, sub.name))
-        subject_id = st.selectbox("学科", sub_options, format_func=lambda x: x[1], key="br_subject")[0]
+        subject_id = st.selectbox("模块", sub_options, format_func=lambda x: x[1], key="br_subject")[0]
 
     col_kw, col_sort, col_df, col_dt = st.columns([4, 2, 2, 2])
     with col_kw:

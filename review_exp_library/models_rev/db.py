@@ -82,7 +82,7 @@ def _seed_catalog(s):
 
     books = ["《大题必备·材料词》", "《必刷100讲》", "《最后十课》", "《解题大师》"]
     sections = ["审稿问题汇总", "审稿优秀案例"]
-    problem_types = ["知识类问题", "解析类问题"]
+    problem_types = ["知识类", "解析类"]
     excellent_types = ["知识类优秀案例", "解析类优秀案例"]
     from utils_rev.config import DEFAULT_SUBJECTS
     subjects = DEFAULT_SUBJECTS

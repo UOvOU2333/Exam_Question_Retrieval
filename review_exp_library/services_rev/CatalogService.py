@@ -26,12 +26,12 @@ _FIELD_LABELS = {
 }
 
 _LAYOUTS = {
-    "知识类问题": [
+    "知识类": [
         FieldSpec("content_before", "修改前", True),
         FieldSpec("content_after", "修改后", True),
         FieldSpec("modify_reason", "修改理由和注意事项", True),
     ],
-    "解析类问题": [
+    "解析类": [
         FieldSpec("title", "题目", True),
         FieldSpec("content_before", "修改前", True),
         FieldSpec("content_after", "修改后", True),
@@ -49,7 +49,7 @@ _LAYOUTS = {
     ],
 }
 
-_DEFAULT_LAYOUT_KEY = "知识类问题"
+_DEFAULT_LAYOUT_KEY = "知识类"
 
 
 def _log(s, operator_id, action, detail):
@@ -77,7 +77,7 @@ def list_case_types(section_id):
     with get_session() as s:
         sec = s.query(Section).filter_by(id=section_id, is_deleted=False).first()
         if not sec:
-            raise NotFoundError("板块不存在")
+            raise NotFoundError("问题与范例不存在")
         rows = s.query(CaseType).filter_by(section_id=section_id, is_deleted=False).order_by(CaseType.sort_order).all()
         return [CaseTypeNode(id=r.id, section_id=r.section_id, name=r.name, sort_order=r.sort_order, is_deleted=r.is_deleted) for r in rows]
 
@@ -112,7 +112,7 @@ def create_section(name, operator_id=None):
         order = s.query(Section).filter_by(is_deleted=False).count()
         node = Section(name=name, sort_order=order + 1, is_deleted=False)
         s.add(node); s.flush()
-        _log(s, operator_id, "新增分类", f"板块:{name}")
+        _log(s, operator_id, "新增分类", f"问题与范例:{name}")
         return node.id
 
 
@@ -123,7 +123,7 @@ def create_case_type(name, section_id, layout_key=None, operator_id=None):
     with get_session() as s:
         sec = s.query(Section).filter_by(id=section_id, is_deleted=False).first()
         if not sec:
-            raise NotFoundError("板块不存在")
+            raise NotFoundError("问题与范例不存在")
         if s.query(CaseType).filter_by(section_id=section_id, name=name, is_deleted=False).first():
             raise ValidationError("名称已存在")
         order = s.query(CaseType).filter_by(section_id=section_id, is_deleted=False).count()
@@ -143,7 +143,7 @@ def create_subject(name, operator_id=None):
         order = s.query(Subject).filter_by(is_deleted=False).count()
         node = Subject(name=name, sort_order=order + 1, is_deleted=False)
         s.add(node); s.flush()
-        _log(s, operator_id, "新增分类", f"学科:{name}")
+        _log(s, operator_id, "新增分类", f"模块:{name}")
         return node.id
 
 
@@ -173,7 +173,7 @@ def rename_section(section_id, new_name, operator_id=None):
         if s.query(Section).filter_by(name=new_name, is_deleted=False).first():
             raise ValidationError("名称已存在")
         old = node.name; node.name = new_name; node.updated_at = datetime.utcnow()
-        _log(s, operator_id, "重命名分类", f"板块:{old}->{new_name}")
+        _log(s, operator_id, "重命名分类", f"问题与范例:{old}->{new_name}")
         return True
 
 
@@ -203,7 +203,7 @@ def rename_subject(subject_id, new_name, operator_id=None):
         if s.query(Subject).filter_by(name=new_name, is_deleted=False).first():
             raise ValidationError("名称已存在")
         old = node.name; node.name = new_name; node.updated_at = datetime.utcnow()
-        _log(s, operator_id, "重命名分类", f"学科:{old}->{new_name}")
+        _log(s, operator_id, "重命名分类", f"模块:{old}->{new_name}")
         return True
 
 
@@ -229,7 +229,7 @@ def delete_section(section_id, operator_id=None):
         if s.query(Case).filter_by(section_id=section_id).count() > 0:
             raise ValidationError("该分类下存在案例,无法删除")
         name = node.name; node.is_deleted = True; node.updated_at = datetime.utcnow()
-        _log(s, operator_id, "删除分类", f"板块:{name}")
+        _log(s, operator_id, "删除分类", f"问题与范例:{name}")
         return True
 
 
@@ -253,7 +253,7 @@ def delete_subject(subject_id, operator_id=None):
         if s.query(Case).filter_by(subject_id=subject_id).count() > 0:
             raise ValidationError("该分类下存在案例,无法删除")
         name = node.name; node.is_deleted = True; node.updated_at = datetime.utcnow()
-        _log(s, operator_id, "删除分类", f"学科:{name}")
+        _log(s, operator_id, "删除分类", f"模块:{name}")
         return True
 
 
@@ -321,7 +321,7 @@ def seed_catalog(session):
         return
     books = ["《大题必备·材料词》", "《必刷100讲》", "《最后十课》", "《解题大师》"]
     sections = ["审稿问题汇总", "审稿优秀案例"]
-    problem_types = ["知识类问题", "解析类问题"]
+    problem_types = ["知识类", "解析类"]
     excellent_types = ["知识类优秀案例", "解析类优秀案例"]
     subjects = [
         "必修一中特", "必修二经济", "必修三政法", "必修四哲文",

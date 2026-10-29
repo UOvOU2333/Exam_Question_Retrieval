@@ -1,4 +1,4 @@
-"""Subject 模型（学科实体，全局独立）。"""
+"""Subject 模型（模块实体，全局独立）。"""
 
 from datetime import datetime
 
