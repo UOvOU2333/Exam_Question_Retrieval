@@ -72,6 +72,32 @@ def case_form_page(case_id=None, keep_status: bool = False):
                                   format_func=lambda x: x[1], key=f"cf_{kid}_subject")[0]
 
     layout = get_field_layout_by_id(case_type_id)
+
+    field_options = [(spec.name, spec.label + (" *" if spec.required else "")) for spec in layout]
+
+    with st.expander("插入图片到正文", expanded=False):
+        _target = st.selectbox(
+            "插入到哪个字段",
+            field_options,
+            format_func=lambda x: x[1],
+            key=f"cf_{kid}_img_target",
+        )
+        _inline_img = st.file_uploader(
+            "选择图片（png / jpg / jpeg / gif / webp / bmp）",
+            type=["png", "jpg", "jpeg", "gif", "webp", "bmp"],
+            key=f"cf_{kid}_inline_img",
+        )
+        if _inline_img:
+            from services_rev.ImageService import abs_path
+            _inline_rel = save_image(_inline_img)
+            _md = f"\n\n![图片说明]({_inline_rel})\n\n"
+            st.image(abs_path(_inline_rel))
+            if st.button("插入到正文", type="primary", key=f"cf_{kid}_img_insert_btn"):
+                _tkey = f"cf_{kid}_{_target[0]}"
+                _cur = st.session_state.get(_tkey, (raw.get(_target[0], "") if raw else ""))
+                st.session_state[_tkey] = (_cur or "") + _md
+                st.rerun()
+
     field_values = {}
     for spec in layout:
         default_val = raw.get(spec.name, "") if raw else ""
@@ -79,18 +105,6 @@ def case_form_page(case_id=None, keep_status: bool = False):
             spec.label + (" *" if spec.required else ""),
             value=default_val, height=120, key=f"cf_{kid}_{spec.name}",
         )
-
-    with st.expander("插入图片到正文（生成 Markdown 代码）", expanded=False):
-        _inline_img = st.file_uploader(
-            "选择图片（png / jpg / jpeg / gif / webp / bmp）",
-            type=["png", "jpg", "jpeg", "gif", "webp", "bmp"],
-            key=f"cf_{kid}_inline_img",
-        )
-        if _inline_img:
-            _inline_rel = save_image(_inline_img)
-            _md = f"![图片说明]({_inline_rel})"
-            st.success("图片已生成，复制下面的 Markdown 代码，粘贴到上方任意正文区域即可：")
-            st.code(_md, language="markdown")
 
     default_review = raw["review_time"] if raw and raw["review_time"] else date.today()
     review_time = st.date_input("审稿时间 *", value=default_review, key=f"cf_{kid}_review_time")
