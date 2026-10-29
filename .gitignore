@@ -264,3 +264,7 @@ chains/config.py
 
 # server
 start_streamlit.sh
+# review_exp_library images
+review_exp_library/static/images/review_cases/*
+!review_exp_library/static/images/review_cases/.gitkeep
+review_exp_library/data/
