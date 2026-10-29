@@ -95,11 +95,6 @@ def case_form_page(case_id=None, keep_status: bool = False):
     default_review = raw["review_time"] if raw and raw["review_time"] else date.today()
     review_time = st.date_input("审稿时间 *", value=default_review, key=f"cf_{kid}_review_time")
 
-    uploaded = st.file_uploader(
-        "插入图片（可多选）", type=["png", "jpg", "jpeg", "gif", "webp", "bmp"],
-        accept_multiple_files=True, key=f"cf_{kid}_images",
-    )
-
     existing_images = raw.get("image_paths", []) if raw else []
     if existing_images:
         with st.expander("已有图片", expanded=False):
@@ -162,9 +157,6 @@ def case_form_page(case_id=None, keep_status: bool = False):
         return
 
     image_paths = list(existing_images)
-    if uploaded:
-        for f in uploaded:
-            image_paths.append(save_image(f))
 
     data = CaseInput(
         book_id=book_id, section_id=section_id, case_type_id=case_type_id, subject_id=subject_id,
