@@ -48,7 +48,7 @@ def case_form_page(case_id=None):
     with col_s:
         sec_options = [(s.id, s.name) for s in list_sections()]
         default_s = raw["section_id"] if raw else (sec_options[0][0] if sec_options else None)
-        section_id = st.selectbox("板块", sec_options,
+        section_id = st.selectbox("问题与范例", sec_options,
                                   index=[o[0] for o in sec_options].index(default_s) if sec_options and default_s in [o[0] for o in sec_options] else 0,
                                   format_func=lambda x: x[1], key="cf_section")[0]
     with col_t:
@@ -60,7 +60,7 @@ def case_form_page(case_id=None):
     with col_sub:
         sub_options = [(s.id, s.name) for s in list_subjects()]
         default_sub = raw["subject_id"] if raw else (sub_options[0][0] if sub_options else None)
-        subject_id = st.selectbox("学科", sub_options,
+        subject_id = st.selectbox("模块", sub_options,
                                   index=[o[0] for o in sub_options].index(default_sub) if sub_options and default_sub in [o[0] for o in sub_options] else 0,
                                   format_func=lambda x: x[1], key="cf_subject")[0]
 

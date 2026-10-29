@@ -1,4 +1,4 @@
-"""分类体系管理页：四级独立实体（书名/板块/案例类型/学科），每级单选框 + 右侧增加/重命名/删除按钮。"""
+"""分类体系管理页：四级独立实体（书名/问题与范例/案例类型/模块），每级单选框 + 右侧增加/重命名/删除按钮。"""
 
 import streamlit as st
 
@@ -87,7 +87,7 @@ def category_manage_page():
     require_permission("manage_catalog")
     user = get_current_user()
     st.subheader("分类体系管理")
-    st.caption("四级独立实体：书名 / 板块(全局共享) / 案例类型 / 学科(全局共享)。所有节点均可增删改。")
+    st.caption("四级独立实体：书名 / 问题与范例(全局共享) / 案例类型 / 模块(全局共享)。所有节点均可增删改。")
 
     books = list_books()
     book = _render_level(
@@ -101,7 +101,7 @@ def category_manage_page():
 
     sections = list_sections()
     section = _render_level(
-        sections, "板块", user, "l2_section",
+        sections, "问题与范例", user, "l2_section",
         on_create=lambda n: create_section(n, operator_id=user["id"]),
         on_rename=lambda nid, n: rename_section(nid, n, operator_id=user["id"]),
         on_delete=lambda nid: delete_section(nid, operator_id=user["id"]),
@@ -121,7 +121,7 @@ def category_manage_page():
 
     subjects = list_subjects()
     _render_level(
-        subjects, "学科", user, "l4_sub",
+        subjects, "模块", user, "l4_sub",
         on_create=lambda n: create_subject(n, operator_id=user["id"]),
         on_rename=lambda nid, n: rename_subject(nid, n, operator_id=user["id"]),
         on_delete=lambda nid: delete_subject(nid, operator_id=user["id"]),

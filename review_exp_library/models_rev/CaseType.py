@@ -1,4 +1,4 @@
-"""CaseType 模型（案例类型实体，隶属板块）。"""
+"""CaseType 模型（案例类型实体，隶属问题与范例）。"""
 
 from datetime import datetime
 

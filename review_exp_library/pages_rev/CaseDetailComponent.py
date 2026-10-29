@@ -8,7 +8,7 @@ from utils_rev.dto import CaseDetail
 
 
 def render_case_detail(detail: CaseDetail):
-    st.markdown(f"**书名**：{detail.book} ｜ **板块**：{detail.section} ｜ **类型**：{detail.case_type} ｜ **学科**：{detail.subject}")
+    st.markdown(f"**书名**：{detail.book} ｜ **问题与范例**：{detail.section} ｜ **类型**：{detail.case_type} ｜ **模块**：{detail.subject}")
 
     if detail.status == "已退回" and detail.reject_comment:
         st.error(f"退回意见：{detail.reject_comment}")
