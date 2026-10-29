@@ -4,10 +4,9 @@ import streamlit as st
 
 from pages_rev.CaseDetailComponent import render_case_detail
 from services_rev.CaseService import get_case_detail
-from utils_rev.dto import CaseSummary
 
 
-def render_case_list(summaries):
+def render_case_list(summaries, show_diff: bool = True):
     if not summaries:
         st.info("暂无案例")
         return
@@ -22,9 +21,9 @@ def render_case_list(summaries):
                 st.markdown(f"状态：{sm.status}")
             with time_col:
                 st.caption(f"审稿 {sm.review_time} ｜ 更新 {sm.update_time:%Y-%m-%d}")
-            with st.expander("查看详情", expanded=False):
+            with st.expander("查看详情", expanded=True):
                 detail = get_case_detail(sm.id)
                 if detail:
-                    render_case_detail(detail)
+                    render_case_detail(detail, show_diff=show_diff)
                 else:
                     st.warning("案例不存在")

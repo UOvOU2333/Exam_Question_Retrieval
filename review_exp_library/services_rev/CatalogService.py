@@ -271,20 +271,20 @@ def validate_catalog(book_id, section_id, case_type_id, subject_id):
 
 
 def _names_map(book_ids, section_ids, case_type_ids, subject_ids):
-    result = {}
+    result = {"book": {}, "section": {}, "case_type": {}, "subject": {}}
     with get_session() as s:
         if book_ids:
             for r in s.query(Book).filter(Book.id.in_(book_ids)).all():
-                result[r.id] = r.name
+                result["book"][r.id] = r.name
         if section_ids:
             for r in s.query(Section).filter(Section.id.in_(section_ids)).all():
-                result[r.id] = r.name
+                result["section"][r.id] = r.name
         if case_type_ids:
             for r in s.query(CaseType).filter(CaseType.id.in_(case_type_ids)).all():
-                result[r.id] = r.name
+                result["case_type"][r.id] = r.name
         if subject_ids:
             for r in s.query(Subject).filter(Subject.id.in_(subject_ids)).all():
-                result[r.id] = r.name
+                result["subject"][r.id] = r.name
     return result
 
 
