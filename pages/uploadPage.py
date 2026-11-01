@@ -98,6 +98,9 @@ def upload():
         
         # 知识模块（多选，可空）
         km_key = f"upload_knowledge_modules_{key_suffix}"
+        km_pending_key = f"{km_key}_pending"
+        if km_pending_key in st.session_state:
+            st.session_state[km_key] = st.session_state.pop(km_pending_key)
         knowledge_modules = st.multiselect(
             "知识模块",
             options=KNOWLEDGE_MODULES,
@@ -115,7 +118,7 @@ def upload():
                     with st.spinner("AI 分析中..."):
                         ai_modules, ai_reason = suggest_knowledge_modules(content, answer, analysis)
                     if ai_modules:
-                        st.session_state[km_key] = ai_modules
+                        st.session_state[km_pending_key] = ai_modules
                         st.success(f"推荐：{', '.join(ai_modules)}")
                         st.rerun()
                     else:
