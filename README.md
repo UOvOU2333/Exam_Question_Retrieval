@@ -183,13 +183,6 @@ python -m streamlit run pages/review.py --server.port 8502
 - 图片为 `review_exp_library/static/images/review_cases/`，应与数据库共同备份。
 - ZIP 导出是部分业务数据导出，不是完整灾备：缺少完整账号、分类、负责人关系和部分案例字段；导入新增记录且依赖目标库已有分类。详见审计记录。
 
-## 旧版 RAG
-
-历史路径 `pages/agentPage.py → chains/rag/agent.py → tools/*_tools.py` 不在当前主站调用链中。
-
-依赖 LangChain、langchain-openai、langchain-classic、ChromaDB、sentence-transformers、python-dotenv，以及自行提供的 `chains/config.py`。该配置被 Git 忽略，当前检出不存在；工具参数 schema、用户实例缓存、权限及依赖兼容性仍需修复，不应直接当作可启用的主站功能。
-
-`data/build_rag_db.py` 使用 `all-MiniLM-L6-v2` 写入 `data/rag_chroma_db/` 的 `question_bank` 集合，首次使用可能下载模型。构建与查询的嵌入方式、重复构建更新、删除同步和备注权限尚需核对。向量库文件存在不代表与 SQLite 实时一致。
 
 ## 代码导航
 
@@ -202,10 +195,8 @@ tools/tag_suggest.py             标签推荐与回填
 tools/build_tag_profile.py       标签画像生成
 tools/*_tools.py                 旧版 LangChain 工具
 chains/deepseek_agent.py         当前 DeepSeek 工具调用助手
-chains/rag/                     历史 RAG 助手
 utils/                          权限、认证、富文本、图片、文档导出
 data/schema.py                  现有数据库结构检查与导出
-data/build_rag_db.py             历史向量库构建
 review_exp_library/              审稿库 models_rev/services_rev/pages_rev/utils_rev
 migrate_db.py                    题型/知识模块字段迁移及题型改名
 migrate_note_visibility.py       备注可见角色字段迁移

@@ -1,0 +1,23 @@
+# Exam_Question_Retrieval 依赖
+# Python >= 3.11（streamlit 1.66+ 要求）
+# 全部使用最新版本，服务器仅运行单个 streamlit 应用
+
+# Web 框架
+streamlit
+streamlit-antd-components
+
+# ORM / 数据
+SQLAlchemy
+pandas
+
+# 文档导出
+python-docx
+fpdf2
+markdown
+htmldocx
+
+# 图像
+pillow
+
+# 网络
+requests
