@@ -147,7 +147,7 @@ KNOWLEDGE_MODULES = [
     "选必一", "选必二", "选必三",
 ]
 
-QUESTION_TYPES = ["选择题", "非选择题", "判断题"]
+QUESTION_TYPES = ["单项选择题", "不定项选择题", "填空题", "缺项选择题", "非选择题", "判断题"]
 
 
 def detect_question_type(content, answer, question_no=None):
@@ -155,19 +155,25 @@ def detect_question_type(content, answer, question_no=None):
     根据题目内容、答案、题号自动检测题型。
 
     返回:
-        "选择题" / "非选择题" / "判断题" / None(无法确定，待人工)
+        QUESTION_TYPES 中的题型 / None(无法确定，待人工)
     """
     if answer is None:
         answer = ""
     answer_stripped = answer.strip()
 
+    # 明确的题型标识优先于答案形式；不定项、缺项也可能只有一个正确选项。
+    if content:
+        for question_type in QUESTION_TYPES:
+            if content.strip().startswith(question_type) or content.strip().startswith(f"【{question_type}】"):
+                return question_type
+
     # 判断题特征：答案为 T / F（不区分大小写）
     if answer_stripped and len(answer_stripped) == 1 and answer_stripped.upper() in ("T", "F"):
         return "判断题"
 
-    # 选择题特征：答案为纯字母组合（A-D），如 A / B / AB / ABCD
+    # 单字母答案预填单项；多字母答案无法可靠区分具体选择题类型。
     if answer_stripped and len(answer_stripped) <= 4 and all(c in "ABCDabcd" for c in answer_stripped):
-        return "选择题"
+        return "单项选择题" if len(answer_stripped) == 1 else None
 
     # 非选择题特征：答案较长（>10 字符）
     if len(answer_stripped) > 10:
