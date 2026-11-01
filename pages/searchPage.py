@@ -1,11 +1,12 @@
 import streamlit as st
 import streamlit_antd_components as sac
+from time import sleep
 
 from utils.auth_utils import require_login, check_permission
 from utils.permissions import is_admin
 from utils.render_utils import render_markdown
 from utils.note_utils import display_notes_list
-from services.question_services import search_questions, get_question_by_id, search_by_note
+from services.question_services import search_questions, get_question_by_id, get_question_summaries, search_by_note
 from services.note_services import get_all_note_types, get_visible_note_type_ids
 from tools.exam_type_utils import QUESTION_TYPES, KNOWLEDGE_MODULES, str_to_knowledge_modules
 
@@ -16,7 +17,7 @@ def search():
 
     col_title, col_show, col_tag = st.columns([2, 1.25, 1.5])
 
-    with col_title: 
+    with col_title:
         st.title("📚 试题检索")
 
     with col_show:
@@ -132,7 +133,7 @@ def search():
 
         if show_choice == "高级":
             st.subheader("📝 备注检索")
-            
+
             # 获取所有标签（笔记类型），按当前用户可见范围过滤
             viewer_role = st.session_state.get("role")
             note_types = get_all_note_types()
@@ -142,9 +143,9 @@ def search():
             note_type_options = {"全部标签": None}
             for note_type in note_types:
                 note_type_options[note_type['type_name']] = note_type['id']
-            
+
             col_tag, col_content, col_creator = st.columns(3)
-            
+
             with col_tag:
                 selected_tag = st.selectbox(
                     "标签",
@@ -153,14 +154,14 @@ def search():
                     key="note_tag"
                 )
                 type_id = note_type_options.get(selected_tag)
-            
+
             with col_content:
                 note_content = st.text_input(
                     "备注内容",
                     placeholder="输入备注内容关键词",
                     key="note_content"
                 )
-            
+
             with col_creator:
                 note_creator = st.text_input(
                     "备注人",
@@ -212,7 +213,7 @@ def search():
         question_type=question_type_filter if question_type_filter != "（不限）" else None,
         knowledge_modules=knowledge_modules_filter or None,
     )
-    
+
     # 备注检索（如果有备注检索条件）
     note_results = []
     if show_choice == "高级":
@@ -228,7 +229,7 @@ def search():
             fuzzy=True,
             visible_type_ids=_visible_ids
         )
-    
+
     # 取交集
     if show_choice == "高级" and ((type_id is not None) or (note_content is not None) or (note_creator is not None)):
         # results = list(set(base_results) & set(note_results))
@@ -250,92 +251,122 @@ def search():
 
     st.success(f"共找到 {len(results)} 条结果")
 
-    for i in results:
-        q = get_question_by_id(i)
-        qid = q["questionID"]
+    summaries = get_question_summaries(results)
+    # 只是内部划分执行范围，所有结果仍连续显示，不改变列表或增加分页。
+    for offset in range(0, len(summaries), 50):
+        _render_search_results(summaries[offset:offset + 50], flag_copy, keyword)
+        if offset + 50 < len(summaries):
+            # Streamlit 的 WebSocket 发送队列有界。给消息发送任务让出时间，
+            # 避免全量结果一次涌入队列导致会话断开、展开空白及导航失效。
+            sleep(0.02)
+
+
+@st.fragment
+def _render_search_results(summaries, flag_copy, keyword):
+    # 展开一题只重跑所在的这一小组，不重新检索或重建全部结果。
+    for summary in summaries:
+        _render_question_result(summary, flag_copy, keyword)
+
+
+def _render_question_result(summary, flag_copy, keyword):
+    qid = summary["questionID"]
+    year = summary["year"]
+    paper_type = summary["paper_type"]
+    question_no = summary["question_no"]
+    q_type = summary["question_type"]
+
+    tip_parts = []
+    if year:
+        tip_parts.append(f"年份：{year}")
+    if paper_type:
+        tip_parts.append(f"卷种：{paper_type}")
+    if question_no:
+        tip_parts.append(f"题号：{question_no}")
+    if q_type:
+        tip_parts.append(f"题型：{q_type}")
+
+    tip_parts_in_que = []
+    if year:
+        tip_parts_in_que.append(f"{year}")
+    if paper_type:
+        tip_parts_in_que.append(f"{paper_type}")
+    if question_no:
+        tip_parts_in_que.append(f" · T{question_no}")
+
+    tip_in_que = ""
+    if tip_parts_in_que:
+        tip_in_que = "".join(tip_parts_in_que)
+        tip_in_que = f"（{tip_in_que}）"
+
+    # 保留原有折叠框外观，展开事件仅用于驱动按需读取和渲染。
+    expander = st.expander(
+        f"📘 题目 #{qid}" + " | " + " | ".join(tip_parts),
+        expanded=False,
+        key=f"search_detail_{qid}",
+        on_change="rerun",
+    )
+    with expander:
+        if not expander.open:
+            return
+
+        q = get_question_by_id(qid)
+        if not q or q["isInRecycleBin"]:
+            st.warning("题目不存在或已移入回收站")
+            return
         content = q["content"]
         answer = q["answer"]
         analysis = q["analysis"]
         source = q["source"]
         analysis_source = q["analysis_source"]
-        year = q["year"]
-        paper_type = q["paper_type"]
-        question_no = q["question_no"]
-        q_type = q["question_type"]
         q_km = q["knowledge_modules"]
 
-        tip_parts = []
-        if year:
-            tip_parts.append(f"年份：{year}")
-        if paper_type:
-            tip_parts.append(f"卷种：{paper_type}")
-        if question_no:
-            tip_parts.append(f"题号：{question_no}")
-        if q_type:
-            tip_parts.append(f"题型：{q_type}")
+        caption_parts = []
 
-        tip_parts_in_que = []
-        if year:
-            tip_parts_in_que.append(f"{year}")
-        if paper_type:
-            tip_parts_in_que.append(f"{paper_type}")
-        if question_no:
-            tip_parts_in_que.append(f" · T{question_no}")
+        if flag_copy:
+            render_markdown(content, tip_in_que, keyword)
+            if answer:
+                render_markdown(answer, "【答案】", keyword)
+            if analysis:
+                if check_permission("view_analysis"):
+                    render_markdown(analysis, "【解析】", keyword)
+                else:
+                    st.info("🔒 当前为体验用户，无法查看解析内容")
 
-        tip_in_que = ""
-        if tip_parts_in_que:
-            tip_in_que = "".join(tip_parts_in_que)
-            tip_in_que = f"（{tip_in_que}）"
+        else:
+            st.markdown("### 题目内容")
+            render_markdown(content, None, keyword)
 
-        with st.expander(f"📘 题目 #{qid}" + " | " + " | ".join(tip_parts), expanded=False):
+            if answer:
+                st.markdown("### 答案")
+                render_markdown(answer, None, keyword)
 
-            caption_parts = []
+            if analysis:
+                if check_permission("view_analysis"):
+                    st.markdown("### 解析")
+                    render_markdown(analysis, None, keyword)
+                else:
+                    st.info("🔒 当前为体验用户，无法查看解析内容")
 
-            if flag_copy:
-                render_markdown(content, tip_in_que, keyword)
-                if answer:
-                    render_markdown(answer, "【答案】", keyword)
-                if analysis:
-                    if check_permission("view_analysis"):
-                        render_markdown(analysis, "【解析】", keyword)
-                    else:
-                        st.info("🔒 当前为体验用户，无法查看解析内容")
+            if year:
+                caption_parts.append(f"📅 年份：{year}")
+            if paper_type:
+                caption_parts.append(f"📥 卷种：{paper_type}")
+            if question_no:
+                caption_parts.append(f"📑 题号：{question_no}")
 
-            else:
-                st.markdown("### 题目内容")
-                render_markdown(content, None, keyword)
+        if q_km:
+            caption_parts.append(f"📚 知识模块：{q_km}")
+        if source:
+            caption_parts.append(f"📌 来源：{source}")
+        if analysis_source:
+            caption_parts.append(f"🔍 解析来源：{analysis_source}")
+        if caption_parts:
+            st.caption(" | ".join(caption_parts))
 
-                if answer:
-                    st.markdown("### 答案")
-                    render_markdown(answer, None, keyword)
+        display_notes_list(qid)
 
-                if analysis:
-                    if check_permission("view_analysis"):
-                        st.markdown("### 解析")
-                        render_markdown(analysis, None, keyword)
-                    else:
-                        st.info("🔒 当前为体验用户，无法查看解析内容")
+        if check_permission("update"):
+            if st.button("更新试题", key=f"update_btn_{qid}"):
+                st.session_state["update_qid"] = qid
+                st.switch_page("pages/managingPage.py")
 
-                if year:
-                    caption_parts.append(f"📅 年份：{year}")
-                if paper_type:
-                    caption_parts.append(f"📥 卷种：{paper_type}")
-                if question_no:
-                    caption_parts.append(f"📑 题号：{question_no}")
-                    
-            if q_km:
-                caption_parts.append(f"📚 知识模块：{q_km}")
-            if source:
-                caption_parts.append(f"📌 来源：{source}")
-            if analysis_source:
-                caption_parts.append(f"🔍 解析来源：{analysis_source}")
-            if caption_parts:
-                st.caption(" | ".join(caption_parts))
-
-            display_notes_list(qid)
-
-            if check_permission("update"):
-                if st.button("更新试题", key=f"update_btn_{qid}"):
-                    st.session_state["update_qid"] = qid
-                    st.switch_page("pages/managingPage.py")
-            

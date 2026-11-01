@@ -29,6 +29,10 @@ def increment_number_in_string(s):
         return s.replace(num_str, new_num, 1)  # 只替换第一个数字
     return s
 
+def fill_analysis_empty(analysis_key):
+    st.session_state[analysis_key] = "暂无"
+
+
 def upload():
     # ===== 权限校验 =====
     require_permission("upload")
@@ -62,6 +66,12 @@ def upload():
             height=180,
             placeholder="请输入解析（支持 Markdown / LaTeX）",
             key=f"upload_analysis_{key_suffix}"
+        )
+        st.button(
+            "填入“暂无”",
+            key=f"upload_fill_analysis_{key_suffix}",
+            on_click=fill_analysis_empty,
+            args=(f"upload_analysis_{key_suffix}",),
         )
 
         left_year, right_type = st.columns(2)

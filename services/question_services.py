@@ -1,6 +1,7 @@
 import sqlite3
 
 from tools.exam_type_utils import (
+    QUESTION_TYPES,
     get_new_textbook_sql_condition,
     detect_question_type,
     knowledge_modules_to_str,
@@ -58,8 +59,7 @@ def search_questions(
     cur = conn.cursor()
 
     base_sql = """
-        SELECT questionID, content, answer, analysis, source, analysis_source,
-               year, paper_type, question_no, question_type, knowledge_modules
+        SELECT questionID
         FROM questions 
     """
 
@@ -166,6 +166,30 @@ def search_questions(
     return result
 
 
+def get_question_summaries(question_ids):
+    """批量读取结果列表元信息，不加载正文、解析或备注。"""
+    ids = list(dict.fromkeys(question_ids))
+    if not ids:
+        return []
+    conn = get_conn()
+    conn.row_factory = sqlite3.Row
+    try:
+        summaries = {}
+        # 兼容 SQLite 的绑定参数数量限制。
+        for offset in range(0, len(ids), 900):
+            batch = ids[offset:offset + 900]
+            placeholders = ",".join("?" for _ in batch)
+            rows = conn.execute(
+                "SELECT questionID, year, paper_type, question_no, question_type "
+                f"FROM questions WHERE isInRecycleBin = 0 AND questionID IN ({placeholders})",
+                batch,
+            ).fetchall()
+            summaries.update({row["questionID"]: dict(row) for row in rows})
+        return [summaries[qid] for qid in ids if qid in summaries]
+    finally:
+        conn.close()
+
+
 def get_question_by_id(qid):
     conn = get_conn()
     conn.row_factory = sqlite3.Row
@@ -251,7 +275,8 @@ def batch_detect_and_fill_question_type(force=False):
         """)
     rows = cur.fetchall()
 
-    stats = {"选择题": 0, "非选择题": 0, "判断题": 0, "跳过": 0}
+    stats = {qtype: 0 for qtype in QUESTION_TYPES}
+    stats["跳过"] = 0
     for row in rows:
         qtype = detect_question_type(row["content"], row["answer"], row["question_no"])
         if qtype:

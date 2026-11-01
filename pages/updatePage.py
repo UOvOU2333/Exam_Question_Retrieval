@@ -19,6 +19,10 @@ IMAGE_DIR = "static/images/questions"
 os.makedirs(IMAGE_DIR, exist_ok=True)
 
 
+def fill_analysis_empty(analysis_key):
+    st.session_state[analysis_key] = "暂无"
+
+
 def update():
     # ===== 权限校验 =====
     require_permission("update")
@@ -90,10 +94,19 @@ def update():
                 value=ori_answer
             )
 
+            analysis_key = f"update_analysis_{qid}"
+            if analysis_key not in st.session_state:
+                st.session_state[analysis_key] = ori_analysis or ""
             analysis = st.text_area(
                 "解析",
                 height=180,
-                value=ori_analysis
+                key=analysis_key,
+            )
+            st.button(
+                "填入“暂无”",
+                key=f"update_fill_analysis_{qid}",
+                on_click=fill_analysis_empty,
+                args=(analysis_key,),
             )
 
             year = st.number_input("年份", min_value=1949, max_value=2050, step=1, value=ori_year)
