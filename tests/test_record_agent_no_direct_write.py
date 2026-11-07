@@ -23,10 +23,11 @@ def test_no_write_import_in_record_agent_tools():
 
 
 def test_tool_whitelist_complete():
-    """工具白名单含 8 个工具，不含写库工具。"""
+    """工具白名单含 9 个工具，不含写库工具。"""
     from chains.record_agent_tools import RECORD_AGENT_TOOL_NAMES
     expected = {
         "create_question_draft", "update_question_draft", "add_note_draft",
+        "add_note_to_draft",
         "insert_table_fragment", "insert_question_image",
         "pdf_upload_and_split", "pdf_match_rubric", "pdf_preview_fragment",
     }

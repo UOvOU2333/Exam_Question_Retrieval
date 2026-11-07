@@ -1,8 +1,8 @@
 """录题 Agent 对话主循环。
 
 复用 deepseek_agent.run_agent 的 HTTP 调用/预算/去重/强制回答骨架，
-替换工具集为录题 8 工具（RECORD_AGENT_TOOLS），
-工具执行前做第三层权限校验，工具执行后写 tool_call 日志。
+替换工具集为录题 9 工具（RECORD_AGENT_TOOLS），
+工具执行前做第三层权限校验（含物理控件拦截层），工具执行后写 tool_call 日志。
 """
 import json
 import os
@@ -15,6 +15,7 @@ from chains.record_agent_tools import (
     RecordToolContext,
     _execute_record_tool,
 )
+from chains.record_agent_perm import PermissionSwitches, check_tool_permission
 from services.record_agent_auth_services import is_record_agent_enabled
 from services.log_services import record_log
 from utils.permissions import is_admin, has_permission
@@ -43,12 +44,18 @@ def _build_record_system_prompt() -> str:
         "你是高中政治题库录题助手，通过调用工具帮助用户录入题目、添加备注、处理 PDF。\n\n"
         "核心规则：\n"
         "1. 你生成的所有内容都是草稿，不会直接写入数据库。用户需要在页面确认后才正式提交。\n"
-        "2. 草稿ID格式为 draft-N，与正式题号隔离，不会改错题号。\n"
+        "2. 草稿ID格式为 draft-N，与正式题号隔离。用户说'草稿一/草稿1/第一份草稿'时，\n"
+        "   你必须将其解析为 draft-1 调用工具，禁止把'草稿一'映射为整数题号 1。\n"
         "3. 所有操作有记录、可撤销。\n\n"
-        "可用工具（8 个）：\n"
+        "草稿/题目 ID 引用规则：\n"
+        "- 给草稿加备注用 add_note_to_draft 工具（target_draft_id 为 draft-N 字符串）\n"
+        "- 给已入库题目加备注用 add_note_draft 工具（target_question_id 为整数）\n"
+        "- 禁止把草稿编号当题目ID 传入，禁止混合使用\n\n"
+        "可用工具（9 个）：\n"
         "- create_question_draft：创建新题目草稿\n"
         "- update_question_draft：修改已有题目草稿（保存修改前快照）\n"
-        "- add_note_draft：添加备注/标签/评分细则草稿\n"
+        "- add_note_draft：添加备注/标签/评分细则草稿（目标为已入库题目ID）\n"
+        "- add_note_to_draft：为指定草稿添加备注（目标为草稿ID，备注随草稿一并提交）\n"
         "- insert_table_fragment：生成表格片段\n"
         "- insert_question_image：在题目中插入图片（需先在图片上传区上传）\n"
         "- pdf_upload_and_split：PDF 多题识别拆分\n"
@@ -70,7 +77,7 @@ def _build_record_system_prompt() -> str:
         "  不可编造新备注类型\n"
         "- 题目正文格式规范：\n"
         "  1) 正文开头不要写题号（如'1.'、'1、'、'第1题'），题号放 question_no 字段\n"
-        "  2) 选择题题干结尾要有全角括号'（）'供填答案\n"
+        "  2) 选择题题干结尾要有全角括号'（ ）'供填答案\n"
         "  3) 选项如'A.①②'不要每个选项单独换行，选项之间用空格分隔排在一行"
     )
 
@@ -92,6 +99,7 @@ def run_record_agent(
     match_store=None,
     pdf_local_paths=None,
     image_file_ids=None,
+    perm_switches=None,
 ):
     """运行录题 Agent。
 
@@ -223,6 +231,24 @@ def run_record_agent(
                     steps.append({"tool": tname, "args": targs, "result": result})
                     working.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
                     continue
+
+                # 物理权限控件拦截（白名单后、tool_call_count+=1 前；不消耗预算）
+                if perm_switches is not None:
+                    _allowed, _reason, _sname = check_tool_permission(tname, perm_switches)
+                    if not _allowed:
+                        result = "【操作已被禁用】%s，请在页面权限控件中开启。" % (_sname or _reason)
+                        record_log(
+                            operator="agent:%s" % (user_id or "?"),
+                            case_id=None,
+                            action="permission_denied",
+                            detail={"layer": "tool_guard", "reason": _reason,
+                                    "switch_name": _sname, "tool": tname,
+                                    "args_preview": str(targs)[:200]},
+                            session_id=session_id,
+                        )
+                        steps.append({"tool": tname, "args": targs, "result": result})
+                        working.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
+                        continue
 
                 tool_call_count += 1
                 result = _execute_record_tool(tname, targs, ctx)
