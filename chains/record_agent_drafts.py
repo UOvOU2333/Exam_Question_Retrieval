@@ -67,6 +67,18 @@ class DraftStore:
                 return d
         return None
 
+    def update_snapshot(self, draft_id, snapshot_updates):
+        """更新草稿 snapshot_after 字段（用户在审核界面编辑草稿）。
+
+        仅 pending 状态可编辑。snapshot_updates 为要覆盖的字段字典。
+        """
+        d = self.get(draft_id)
+        if not d or d["status"] != "pending":
+            return False
+        d["snapshot_after"].update(snapshot_updates)
+        d["edited_at"] = _now()
+        return True
+
     def list_pending(self):
         return [d for d in self._drafts() if d["status"] == "pending"]
 
