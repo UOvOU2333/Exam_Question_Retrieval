@@ -278,7 +278,7 @@ def _normalize_question_content(content, question_type):
     """题目正文格式规范化。
 
     1. 去掉开头的题号（题号应放在 question_no 字段，不写进正文）
-    2. 选择题题干结尾补全角括号"（）"（已有则不补）
+    2. 选择题题干结尾补全角括号"（ ）"（已有则不补）
 
     返回规范化后的 content。
     """
@@ -289,7 +289,7 @@ def _normalize_question_content(content, question_type):
     # 选择题补全角括号
     if question_type in _CHOICE_TYPES:
         if not _TRAILING_PAREN_PATTERN.search(cleaned):
-            cleaned = cleaned.rstrip() + "（）"
+            cleaned = cleaned.rstrip() + "（ ）"
     return cleaned
 
 

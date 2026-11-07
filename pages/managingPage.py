@@ -29,7 +29,7 @@ def main():
             items=[
                 sac.MenuItem('试题更新', icon='pencil'),
                 sac.MenuItem('试题上传', icon='upload'),
-                sac.MenuItem('录题 Agent', icon='robot'),
+                sac.MenuItem('录题助手', icon='robot'),
                 sac.MenuItem('试卷导出', icon='download'),
                 sac.MenuItem('卷种变更', icon='arrow-left-right'),
                 sac.MenuItem('备注管理', icon='tags'),
@@ -50,7 +50,7 @@ def main():
         else:
             upload()
 
-    elif selected == '录题 Agent':
+    elif selected == '录题助手':
         if not check_permission("record_agent"):
             st.error("无权限访问")
         else:
