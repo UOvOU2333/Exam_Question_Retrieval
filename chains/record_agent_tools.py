@@ -1,4 +1,4 @@
-"""录题 Agent 工具集（8 个工具 schema + 执行函数）。
+"""录题 Agent 工具集（9 个工具 schema + 执行函数）。
 
 安全核心约束——禁直写机制：
   本模块禁止 import / 调用任何写库服务层函数：
@@ -13,11 +13,12 @@
     - question_services.get_question_by_no_and_paper / search_by_content_similarity（匹配候选）
     - note_services.has_rubric_note / get_note_type_by_name（去重检查）
 
-工具清单（8 个）：
-  录题工具（5）：
+工具清单（9 个）：
+  录题工具（6）：
     create_question_draft     创建题目草稿
     update_question_draft     修改题目草稿（保存修改前快照）
-    add_note_draft            添加备注草稿
+    add_note_draft            添加备注草稿（目标为已入库题目ID）
+    add_note_to_draft         为草稿添加备注（目标为草稿ID，随草稿一并提交）
     insert_table_fragment     插入表格片段
     insert_question_image     插入题目内图片（校验 file_id 归属）
   PDF 工具（3）：
@@ -59,11 +60,54 @@ from chains.rubric_matcher import (
     CONFIDENCE_THRESHOLD,
 )
 
+# 草稿/题目 ID 解析（消歧）
+_CN_NUM_MAP = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+
+
+def _cn_to_int(s):
+    """中文数字或阿拉伯数字字符串转整数，不支持复合（十一等）。"""
+    if s.isdigit():
+        return int(s)
+    return _CN_NUM_MAP.get(s)
+
+
+def _parse_target_ref(value):
+    """解析目标引用，区分草稿ID 与题目ID。
+
+    返回 (kind, payload)：
+      - ("draft", N)     草稿ID（N 为整数序号）
+      - ("question", N)  题目ID（N 为整数）
+      - ("ambiguous", value) 无法判定
+    """
+    if value is None:
+        return ("ambiguous", value)
+    if isinstance(value, int):
+        return ("question", value)
+    s = str(value).strip()
+    m = re.match(r"^draft-(\d+)$", s)
+    if m:
+        return ("draft", int(m.group(1)))
+    m = re.match(r"^草稿([一二三四五六七八九十\d]+)$", s)
+    if m:
+        n = _cn_to_int(m.group(1))
+        if n is not None:
+            return ("draft", n)
+    m = re.match(r"^第([一二三四五六七八九十\d]+)份草稿$", s)
+    if m:
+        n = _cn_to_int(m.group(1))
+        if n is not None:
+            return ("draft", n)
+    if s.isdigit():
+        return ("question", int(s))
+    return ("ambiguous", value)
+
+
 # 工具名白名单
 RECORD_AGENT_TOOL_NAMES = {
     "create_question_draft",
     "update_question_draft",
     "add_note_draft",
+    "add_note_to_draft",
     "insert_table_fragment",
     "insert_question_image",
     "pdf_upload_and_split",
@@ -150,6 +194,22 @@ RECORD_AGENT_TOOLS = [
                     "content": {"type": "string", "description": "备注内容（Markdown）"},
                 },
                 "required": ["target_question_id", "type_name", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_note_to_draft",
+            "description": "为指定草稿添加备注。备注随草稿一并提交（不单独成草稿，不直接写库）。target_draft_id 必须是 draft-N 格式。给已入库题目加备注请用 add_note_draft。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_draft_id": {"type": "string", "description": "目标草稿ID（draft-N 格式）"},
+                    "type_name": {"type": "string", "description": "备注类型名称，必须匹配备注类型表已有类型，不可编造新类型"},
+                    "content": {"type": "string", "description": "备注内容（Markdown）"},
+                },
+                "required": ["target_draft_id", "type_name", "content"],
             },
         },
     },
@@ -337,6 +397,10 @@ def _execute_update_question_draft(args, ctx):
     target_id = args.get("target_question_id")
     if not target_id:
         return "缺少 target_question_id"
+    _kind, _payload = _parse_target_ref(target_id)
+    if _kind == "draft":
+        return ("draft-%d 是草稿ID，不能作为题目ID 使用。"
+                "若要给草稿加备注请用 add_note_to_draft 工具。") % _payload
     q = get_question_by_id(target_id)
     if not q:
         return "未找到ID为 %s 的题目" % target_id
@@ -390,6 +454,13 @@ def _execute_add_note_draft(args, ctx):
     content = args.get("content")
     if not all([target_id, type_name, content]):
         return "缺少必填字段 target_question_id/type_name/content"
+    _kind, _payload = _parse_target_ref(target_id)
+    if _kind == "draft":
+        return ("draft-%d 是草稿ID，不能作为题目ID 使用。"
+                "给草稿加备注请用 add_note_to_draft 工具。") % _payload
+    if _kind == "question" and ctx.draft_store.get("draft-%d" % _payload):
+        return ("目标为题目ID %s，但当前草稿区存在草稿 draft-%s，请确认意图："
+                "给草稿加备注用 add_note_to_draft，给题目加备注请明确继续。") % (_payload, _payload)
     q = get_question_by_id(target_id)
     if not q:
         return "未找到ID为 %s 的题目" % target_id
@@ -418,6 +489,49 @@ def _execute_add_note_draft(args, ctx):
         session_id=ctx.session_id,
     )
     return "已创建备注草稿 %s（题目 %s，类型'%s'），待用户确认后提交。" % (draft_id, target_id, type_name)
+
+
+def _execute_add_note_to_draft(args, ctx):
+    """为草稿添加备注（追加到 snapshot.notes，随草稿一并提交）。
+
+    禁直写：仅调 draft_store.update_snapshot，不 import/调用 create_question_note。
+    """
+    target_draft_id = args.get("target_draft_id")
+    type_name = args.get("type_name")
+    content = args.get("content")
+    if not all([target_draft_id, type_name, content]):
+        return "缺少必填字段 target_draft_id/type_name/content"
+    kind, payload = _parse_target_ref(target_draft_id)
+    if kind != "draft":
+        return ("target_draft_id 必须是草稿ID（draft-N 格式），当前传入'%s'。"
+                "给已入库题目加备注请用 add_note_draft 工具。") % target_draft_id
+    draft_id = "draft-%d" % payload
+    d = ctx.draft_store.get(draft_id)
+    if not d:
+        return "草稿 %s 不存在或已提交/丢弃" % draft_id
+    if d.get("status") != "pending":
+        return "草稿 %s 已提交/丢弃，不可再添加备注" % draft_id
+    if d.get("draft_type") == "add_note":
+        return "备注草稿 %s 不能再叠加备注" % draft_id
+    note_type = get_note_type_by_name(type_name)
+    if not note_type:
+        return "备注类型'%s'不存在，不可编造新类型。请使用已有备注类型。" % type_name
+    snapshot = d.get("snapshot_after", {}) or {}
+    notes = list(snapshot.get("notes", []))
+    notes.append({
+        "type_id": note_type["id"],
+        "type_name": type_name,
+        "content": content,
+    })
+    ctx.draft_store.update_snapshot(draft_id, {"notes": notes})
+    record_log(
+        operator="agent:%s" % ctx.user_id,
+        case_id=d.get("target_question_id"),
+        action="draft_create",
+        detail={"draft_id": draft_id, "draft_type": "add_note_to_draft", "type_name": type_name},
+        session_id=ctx.session_id,
+    )
+    return "已为草稿 %s 添加备注（类型'%s'），随草稿提交时一并写入。" % (draft_id, type_name)
 
 
 def _execute_insert_table_fragment(args, ctx):
@@ -585,6 +699,8 @@ def _execute_record_tool(name, args, ctx):
             return _execute_update_question_draft(args, ctx)
         if name == "add_note_draft":
             return _execute_add_note_draft(args, ctx)
+        if name == "add_note_to_draft":
+            return _execute_add_note_to_draft(args, ctx)
         if name == "insert_table_fragment":
             return _execute_insert_table_fragment(args, ctx)
         if name == "insert_question_image":

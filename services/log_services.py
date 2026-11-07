@@ -34,6 +34,7 @@ VALID_LOG_ACTIONS = {
     "grant_record_agent",
     "revoke_record_agent",
     "permission_denied",
+    "permission_toggle",
     "pdf_upload",
     "pdf_parse",
     "pdf_split",

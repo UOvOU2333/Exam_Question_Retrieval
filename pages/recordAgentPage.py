@@ -12,7 +12,8 @@
   工具执行层禁直写，仅生成草稿。
 
 布局（仿照试题更新页）：
-  顶部：上传文件（expander）
+  顶部：Agent 权限控件 expander（紧急停止 + 7 粒度开关）
+  上传文件：权限控件之下（expander）
   标题行：录题助手（左）| 草稿编号 number_input（右）——同 updatePage 题号位置
   双栏：左侧手动修改区 | 右侧助手对话历史
   预览：双栏之下，用 render_markdown 渲染选中草稿（参考上传/更新页调用）
@@ -35,6 +36,7 @@ from services.question_services import (
     update_question,
     move_to_recycle_bin,
     get_question_by_id,
+    get_question_by_no_and_paper,
 )
 from services.note_services import (
     create_question_note,
@@ -46,6 +48,7 @@ from services.note_services import (
     get_question_notes,
 )
 from chains.record_agent import run_record_agent, get_api_key
+from chains.record_agent_perm import PermissionSwitches, OP_TYPE_LABELS
 from chains.record_agent_drafts import (
     DraftStore,
     UndoStack,
@@ -86,7 +89,35 @@ _ACTION_LABELS = {
     "rubric_upload": "上传细则",
     "rubric_match_revise": "修正匹配",
     "permission_denied": "拒绝访问",
+    "permission_toggle": "权限切换",
 }
+
+
+def _render_perm_controls(switches, user_id, sid):
+    """渲染 Agent 权限控件 expander（紧急停止 + 7 粒度开关）。"""
+    with st.expander("Agent 权限控件", expanded=not switches.is_default()):
+        cur_es = switches.get_emergency_stop()
+        new_es = st.checkbox("紧急停止（禁止 Agent 一切写操作）", value=cur_es, key="ra_perm_es_%s" % sid)
+        if new_es != cur_es:
+            switches.set_emergency_stop(new_es)
+            record_log(operator="user:%s" % user_id, case_id=None,
+                       action="permission_toggle",
+                       detail={"switch": "emergency_stop", "before": cur_es, "after": new_es},
+                       session_id=sid)
+        st.markdown("---")
+        st.caption("操作粒度开关")
+        cur_sw = switches.get_all()
+        cols = st.columns(2)
+        for i, (op_type, label) in enumerate(OP_TYPE_LABELS.items()):
+            with cols[i % 2]:
+                cur_val = cur_sw.get(op_type, True)
+                new_val = st.checkbox(label, value=cur_val, key="ra_perm_%s_%s" % (op_type, sid))
+                if new_val != cur_val:
+                    switches.set_switch(op_type, new_val)
+                    record_log(operator="user:%s" % user_id, case_id=None,
+                               action="permission_toggle",
+                               detail={"switch": op_type, "before": cur_val, "after": new_val},
+                               session_id=sid)
 
 
 def _summarize_detail(action, detail):
@@ -140,62 +171,30 @@ def _render_operation_logs(sid):
 
 
 def _render_note_section(d, draft_store, user_id, sid):
-    """备注栏目：复用 question_notes_component 表层布局，底层适配草稿流程。
+    """备注栏目：展示草稿携带的备注 + 已有题目备注。
 
-    - update_question 草稿：展示 target_question_id 已有备注 + 添加备注草稿入口
-    - create_question 草稿：新题未提交，显示"暂无备注"
+    - 草稿携带备注（snapshot.notes）：提交时一并写入，优先展示
+    - update_question 草稿：额外展示 target_question_id 已有备注
+    - 无任何备注：显示"暂无备注"
     """
     cur_dtype = d["draft_type"]
     target_qid = d.get("target_question_id")
 
     st.subheader("题目备注")
 
-    if cur_dtype == "create_question" or not target_qid:
+    carried = d.get("snapshot_after", {}).get("notes", [])
+    if carried:
+        st.caption("草稿携带备注 %d 条（提交时一并写入）" % len(carried))
+        for n in carried:
+            st.write("**%s**" % n.get("type_name", ""))
+            render_markdown(n.get("content", ""))
+
+    if cur_dtype == "update_question" and target_qid:
+        if carried:
+            st.caption("题目已有备注")
+        display_notes_list(target_qid)
+    elif not carried:
         st.info("暂无备注")
-        return
-
-    display_notes_list(target_qid)
-
-    col_left, col_right = st.columns([2, 1])
-    with col_right:
-        selected_type_id = compact_note_type_selector()
-    with col_left:
-        with st.container(border=True):
-            with st.form("ra_add_note_form", clear_on_submit=True):
-                note_content = st.text_area(
-                    "内容", placeholder="输入备注内容...", height=80,
-                    label_visibility="collapsed",
-                )
-                c1, c2 = st.columns([1, 1])
-                with c1:
-                    submitted = st.form_submit_button("新增备注草稿", type="primary", use_container_width=True)
-                with c2:
-                    if not selected_type_id:
-                        st.error("未选择")
-                    else:
-                        st.success(get_note_type(selected_type_id)["type_name"])
-                if submitted:
-                    if not selected_type_id:
-                        st.error("请先选择一个备注类型")
-                    elif not note_content.strip():
-                        st.warning("请输入备注内容")
-                    else:
-                        nt = get_note_type(selected_type_id)
-                        snap = {
-                            "target_question_id": target_qid,
-                            "type_id": selected_type_id,
-                            "type_name": nt["type_name"],
-                            "content": note_content,
-                        }
-                        did = draft_store.add("add_note", snap, target_question_id=target_qid)
-                        if did:
-                            record_log(operator="user:%s" % user_id, case_id=target_qid,
-                                       action="draft_create", detail={"draft_id": did, "draft_type": "add_note"},
-                                       session_id=sid)
-                            st.success("已创建备注草稿 %s" % did)
-                            st.rerun()
-                        else:
-                            st.error("草稿数已达上限")
 
 
 def record_agent_page():
@@ -241,8 +240,12 @@ def record_agent_page():
     pdf_library = SessionPdfLibrary(sid)
     fragment_store = PdfFragmentStore(sid)
     match_store = MatchDraftStore(sid)
+    perm_switches = PermissionSwitches(sid)
 
-    # ===== 顶部：上传文件 =====
+    # ===== 顶部：Agent 权限控件 =====
+    _render_perm_controls(perm_switches, user_id, sid)
+
+    # ===== 上传文件 =====
     with st.expander("上传文件", expanded=False):
         col_img, col_pdf = st.columns(2)
         with col_img:
@@ -261,6 +264,9 @@ def record_agent_page():
                 else:
                     for f in img_files:
                         fbytes = f.getvalue()
+                        file_sig = "ra_img_done_%s_%d" % (f.name, len(fbytes))
+                        if st.session_state.get(file_sig):
+                            continue
                         ok, msg = validate_image(f.name, fbytes)
                         if not ok:
                             st.error("%s: %s" % (f.name, msg))
@@ -271,6 +277,7 @@ def record_agent_page():
                             record_log(operator="user:%s" % user_id, case_id=None,
                                        action="tool_call", detail={"upload": "image", "file_id": file_id},
                                        session_id=sid)
+                            st.session_state[file_sig] = True
                             st.success("已上传: %s" % f.name)
                         except Exception as e:
                             st.error("上传失败 %s: %s" % (f.name, e))
@@ -290,6 +297,9 @@ def record_agent_page():
                 else:
                     for f in pdf_files:
                         fbytes = f.getvalue()
+                        file_sig = "ra_pdf_done_%s_%d" % (f.name, len(fbytes))
+                        if st.session_state.get(file_sig):
+                            continue
                         ok, msg = validate_pdf(f.name, fbytes)
                         if not ok:
                             st.error("%s: %s" % (f.name, msg))
@@ -313,6 +323,7 @@ def record_agent_page():
                                         "pages": len(page_file_ids)},
                                 session_id=sid,
                             )
+                            st.session_state[file_sig] = True
                             st.success("已上传 PDF: %s（%d 页图片）" % (f.name, len(page_file_ids)))
                         except Exception as e:
                             st.error("上传失败 %s: %s" % (f.name, e))
@@ -429,7 +440,53 @@ def record_agent_page():
                     "question_type": question_type or "",
                     "knowledge_modules": ",".join(knowledge_modules),
                 }
-            if st.button("保存修改到草稿", key="ra_save_draft", type="secondary"):
+            if cur_dtype != "add_note":
+                with st.expander("添加备注到草稿", expanded=False):
+                    ncl, ncr = st.columns([2, 1])
+                    with ncr:
+                        selected_type_id = compact_note_type_selector()
+                    with ncl:
+                        with st.container(border=True):
+                            with st.form("ra_add_note_form_%s" % d["draft_id"], clear_on_submit=True):
+                                note_content = st.text_area("内容", placeholder="输入备注内容...", height=80,
+                                                            label_visibility="collapsed")
+                                cc1, cc2 = st.columns([1, 1])
+                                with cc1:
+                                    submitted = st.form_submit_button("添加备注", type="primary", use_container_width=True)
+                                with cc2:
+                                    if not selected_type_id:
+                                        st.error("未选择")
+                                    else:
+                                        st.success(get_note_type(selected_type_id)["type_name"])
+                                if submitted:
+                                    if not selected_type_id:
+                                        st.error("请先选择备注类型")
+                                    elif not note_content.strip():
+                                        st.warning("请输入备注内容")
+                                    else:
+                                        nt = get_note_type(selected_type_id)
+                                        notes = list(snapshot.get("notes", []))
+                                        notes.append({
+                                            "type_id": selected_type_id,
+                                            "type_name": nt["type_name"],
+                                            "content": note_content,
+                                        })
+                                        draft_store.update_snapshot(d["draft_id"], {"notes": notes})
+                                        st.success("已添加备注到草稿")
+                                        st.rerun()
+                    notes = snapshot.get("notes", [])
+                    if notes:
+                        st.caption("已携带备注 %d 条" % len(notes))
+                        for i, n in enumerate(notes):
+                            nc1, nc2 = st.columns([4, 1])
+                            nc1.write("%s | %s" % (n.get("type_name", ""), (n.get("content", "") or "")[:50]))
+                            with nc2:
+                                if st.button("删除", key="ra_del_note_%s_%d" % (d["draft_id"], i)):
+                                    notes2 = list(snapshot.get("notes", []))
+                                    notes2.pop(i)
+                                    draft_store.update_snapshot(d["draft_id"], {"notes": notes2})
+                                    st.rerun()
+            if st.button("保存修改到草稿", key="ra_save_draft", type="secondary", use_container_width=True):
                 draft_store.update_snapshot(d["draft_id"], snap_update)
                 st.success("已保存修改到草稿")
                 st.rerun()
@@ -461,7 +518,8 @@ def record_agent_page():
             if st.button("清空对话", type="secondary", key="ra_clear_chat"):
                 st.session_state["ra_history"] = []
                 st.rerun()
-        chat_container = st.container(height=900)
+        chat_height = 1000 if draft_idx else 600
+        chat_container = st.container(height=chat_height)
         with chat_container:
             for m in st.session_state["ra_history"]:
                 with st.chat_message(m["role"]):
@@ -573,6 +631,7 @@ def record_agent_page():
                 pdf_local_paths=st.session_state["ra_pdf_local_paths"],
                 image_file_ids=[im["file_id"] for im in image_gallery.list_all()]
                               + pdf_library.all_page_file_ids(),
+                perm_switches=perm_switches,
             )
         st.session_state["ra_history"].append({"role": "assistant", "content": answer})
         if steps:
@@ -605,8 +664,24 @@ def _commit_draft(d, draft_store, undo_stack, user_id, sid):
             undo_stack.push("create_question", qid, None, snap)
             record_log(operator="user:%s" % user_id, case_id=qid, action="commit",
                        detail={"draft_id": d["draft_id"], "qid": qid}, session_id=sid)
+            dup_msg = ""
+            qno = snap.get("question_no", "")
+            ptype = snap.get("paper_type", "")
+            if qno:
+                dups = get_question_by_no_and_paper(qno, ptype or None)
+                dups_other = [x for x in dups if x["questionID"] != qid]
+                if dups_other:
+                    dup_msg = "；注意：题号%s已存在题目%s" % (
+                        qno, ",".join(str(x["questionID"]) for x in dups_other))
+            note_count = 0
+            for n in snap.get("notes", []):
+                try:
+                    create_question_note(qid, n.get("type_id"), n.get("content", ""), user_id)
+                    note_count += 1
+                except Exception:
+                    pass
             draft_store.commit(d["draft_id"])
-            return True, "已提交，新题目ID: %s" % qid
+            return True, "已提交，新题目ID: %s%s；备注%d条" % (qid, dup_msg, note_count)
         elif dtype == "update_question":
             update_question(
                 target,
@@ -619,8 +694,15 @@ def _commit_draft(d, draft_store, undo_stack, user_id, sid):
             undo_stack.push("update_question", target, d.get("snapshot_before"), snap)
             record_log(operator="user:%s" % user_id, case_id=target, action="commit",
                        detail={"draft_id": d["draft_id"]}, session_id=sid)
+            note_count = 0
+            for n in snap.get("notes", []):
+                try:
+                    create_question_note(target, n.get("type_id"), n.get("content", ""), user_id)
+                    note_count += 1
+                except Exception:
+                    pass
             draft_store.commit(d["draft_id"])
-            return True, "已提交修改，题目ID: %s" % target
+            return True, "已提交修改，题目ID: %s；备注%d条" % (target, note_count)
         elif dtype == "add_note":
             note_id = create_question_note(
                 snap.get("target_question_id"), snap.get("type_id"),
