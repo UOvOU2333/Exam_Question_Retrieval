@@ -3,7 +3,7 @@ import streamlit as st
 import hashlib
 
 from utils.auth_utils import require_permission
-from utils.permissions import ALL_ROLES, ROLE_NAMES, is_admin, ROLE_EN_SHORT
+from utils.permissions import ALL_ROLES, ROLE_NAMES, is_admin, ROLE_EN_SHORT, can_be_authorized_for_record_agent
 from services.user_services import (
     get_all_users_with_deleted,
     create_user,
@@ -14,6 +14,12 @@ from services.user_services import (
     get_ai_whitelist,
     add_ai_whitelist,
     remove_ai_whitelist,
+)
+from services.record_agent_auth_services import (
+    is_record_agent_enabled,
+    grant_record_agent,
+    revoke_record_agent,
+    get_record_agent_whitelist,
 )
 
 
@@ -55,22 +61,25 @@ def user_manage():
 
             users = get_all_users_with_deleted()
             ai_whitelist = set(get_ai_whitelist())
+            record_agent_whitelist = set(get_record_agent_whitelist())
 
-            col_h1, col_h2, col_h3, col_h4, col_h5, col_h6 = st.columns([1, 2, 2, 1.5, 1.5, 2.5])
+            # 5 列布局：ID / 用户名 / 角色 / 状态 / 操作（操作列加宽容纳三组按钮）
+            col_h1, col_h2, col_h3, col_h4, col_h5 = st.columns([1, 2, 2, 1.5, 4])
             col_h1.markdown("**ID**")
             col_h2.markdown("**用户名**")
             col_h3.markdown("**角色**")
             col_h4.markdown("**状态**")
-            col_h5.markdown("**AI授权**")
-            col_h6.markdown("**管理**")
+            col_h5.markdown("**操作**")
 
             if users:
                 for uid, uname, urole, _, is_deleted in users:
                     user_is_admin = is_admin(urole)
-                    enabled = user_is_admin or uid in ai_whitelist
+                    ai_enabled = user_is_admin or uid in ai_whitelist
+                    ra_enabled = user_is_admin or uid in record_agent_whitelist
                     disabled = bool(is_deleted)
+                    can_ra = can_be_authorized_for_record_agent(urole)
 
-                    c1, c2, c3, c4, c5, c6 = st.columns([1, 2, 2, 1.5, 1.5, 2.5])
+                    c1, c2, c3, c4, c5 = st.columns([1, 2, 2, 1.5, 4])
                     c1.write(uid)
                     c2.markdown(f"**{uname}**")
                     c3.write(f"{ROLE_NAMES.get(urole, urole)}（{ROLE_EN_SHORT.get(urole,urole)}）")
@@ -81,20 +90,44 @@ def user_manage():
                     with c5:
                         if disabled:
                             st.markdown("—")
-                        elif user_is_admin:
-                            st.markdown("自授")
-                        elif enabled:
-                            if st.button("移除", key=f"ai_rm_{uid}", type="secondary"):
-                                remove_ai_whitelist(uid)
-                                st.rerun()
                         else:
-                            if st.button("授权", key=f"ai_add_{uid}", type="primary"):
-                                add_ai_whitelist(uid, st.session_state.get("user_id"))
-                                st.rerun()
-                    with c6:
-                        if st.button("修改角色", key=f"edit_{uid}"):
-                            st.session_state["edit_user"] = uid
-                            st.rerun()
+                            # 操作列内三组按钮并列：AI助手授权 | 录题Agent授权 | 修改角色
+                            op_a, op_b, op_c = st.columns([1, 1, 1])
+                            with op_a:
+                                st.caption("AI助手")
+                                if user_is_admin:
+                                    st.markdown("自动授权")
+                                elif ai_enabled:
+                                    if st.button("取消授权", key=f"ai_rm_{uid}", type="secondary"):
+                                        remove_ai_whitelist(uid)
+                                        st.rerun()
+                                else:
+                                    if st.button("授权", key=f"ai_add_{uid}", type="primary"):
+                                        add_ai_whitelist(uid, st.session_state.get("user_id"))
+                                        st.rerun()
+                            with op_b:
+                                st.caption("录题Agent")
+                                if user_is_admin:
+                                    st.markdown("自动授权")
+                                elif not can_ra:
+                                    st.markdown(":gray[不可授权]")
+                                elif ra_enabled:
+                                    if st.button("取消授权", key=f"ra_rm_{uid}", type="secondary"):
+                                        ok, msg = revoke_record_agent(uid, st.session_state.get("user_id"))
+                                        if not ok:
+                                            st.error(msg)
+                                        st.rerun()
+                                else:
+                                    if st.button("授权", key=f"ra_add_{uid}", type="primary"):
+                                        ok, msg = grant_record_agent(uid, st.session_state.get("user_id"))
+                                        if not ok:
+                                            st.error(msg)
+                                        st.rerun()
+                            with op_c:
+                                st.caption("角色")
+                                if st.button("修改角色", key=f"edit_{uid}"):
+                                    st.session_state["edit_user"] = uid
+                                    st.rerun()
                             
             else:
                 st.info("暂无用户")
@@ -142,7 +175,9 @@ def user_manage():
             sel_uid, sel_uname, sel_urole, _, sel_is_deleted = selected_user
             sel_disabled = bool(sel_is_deleted)
             sel_is_admin = is_admin(sel_urole)
-            sel_enabled = sel_is_admin or sel_uid in ai_whitelist
+            sel_ai_enabled = sel_is_admin or sel_uid in ai_whitelist
+            sel_ra_enabled = sel_is_admin or sel_uid in record_agent_whitelist
+            sel_can_ra = can_be_authorized_for_record_agent(sel_urole)
 
             c_info, c_act = st.columns([3, 2])
             with c_info:
@@ -155,16 +190,37 @@ def user_manage():
             with c_act:
                 if sel_disabled:
                     st.markdown("—")
-                elif sel_is_admin:
-                    st.info("管理员自动授权")
-                elif sel_enabled:
-                    if st.button("移除AI授权", key=f"edit_ai_rm_{sel_uid}", type="secondary"):
-                        remove_ai_whitelist(sel_uid)
-                        st.rerun()
                 else:
-                    if st.button("新增AI授权", key=f"edit_ai_add_{sel_uid}", type="primary"):
-                        add_ai_whitelist(sel_uid, st.session_state.get("user_id"))
-                        st.rerun()
+                    # AI 助手授权
+                    st.caption("AI助手授权")
+                    if sel_is_admin:
+                        st.info("自授权")
+                    elif sel_ai_enabled:
+                        if st.button("移除AI授权", key=f"edit_ai_rm_{sel_uid}", type="secondary"):
+                            remove_ai_whitelist(sel_uid)
+                            st.rerun()
+                    else:
+                        if st.button("新增AI授权", key=f"edit_ai_add_{sel_uid}", type="primary"):
+                            add_ai_whitelist(sel_uid, st.session_state.get("user_id"))
+                            st.rerun()
+                    # 录题 Agent 授权
+                    st.caption("录题AI授权")
+                    if sel_is_admin:
+                        st.info("自授权")
+                    elif not sel_can_ra:
+                        st.markdown(":gray[不可授权]")
+                    elif sel_ra_enabled:
+                        if st.button("取消录题授权", key=f"edit_ra_rm_{sel_uid}", type="secondary"):
+                            ok, msg = revoke_record_agent(sel_uid, st.session_state.get("user_id"))
+                            if not ok:
+                                st.error(msg)
+                            st.rerun()
+                    else:
+                        if st.button("授权录题AI", key=f"edit_ra_add_{sel_uid}", type="primary"):
+                            ok, msg = grant_record_agent(sel_uid, st.session_state.get("user_id"))
+                            if not ok:
+                                st.error(msg)
+                            st.rerun()
 
             new_role = st.selectbox(
                 "修改角色",

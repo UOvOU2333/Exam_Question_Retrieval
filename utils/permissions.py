@@ -72,6 +72,8 @@ PERMISSIONS = {
     "user_manage":       (ROLE_ADMIN,),
     "note_type_manage":  (ROLE_ADMIN,),
     "ai_auto":           (ROLE_ADMIN,),
+    # 录题 Agent：editor 及以上角色可被授权使用
+    "record_agent":      (ROLE_EDITOR, ROLE_ADVANCER, ROLE_ADMIN),
 }
 
 
@@ -79,6 +81,29 @@ PERMISSIONS = {
 def has_permission(role, perm):
     """判断角色是否拥有指定权限"""
     return role in PERMISSIONS.get(perm, ())
+
+
+def can_be_authorized_for_record_agent(role):
+    """判断该角色是否可被管理员手动授权使用录题 Agent。
+
+    admin 自动授权无需在白名单，故不在可被授权集合内；
+    viewer/experiencer 不可被授权。
+    """
+    return role in (ROLE_EDITOR, ROLE_ADVANCER)
+
+
+def can_use_record_agent(role, user_id):
+    """判断用户是否可使用录题 Agent（综合角色 + 白名单）。
+
+    admin 直接放行；否则要求角色有 record_agent 权限且在录题 Agent 白名单内。
+    为避免循环依赖，此处延迟 import record_agent_auth_services。
+    """
+    if is_admin(role):
+        return True
+    if not has_permission(role, "record_agent"):
+        return False
+    from services.record_agent_auth_services import is_record_agent_enabled
+    return is_record_agent_enabled(user_id)
 
 
 def can_read(role):
