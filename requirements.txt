@@ -22,5 +22,5 @@ pillow
 # 网络
 requests
 
-# PDF 解析（录题 Agent PDF 多题识别与评分细则匹配）
-pdfplumber
+# PDF 页面渲染为图片（录题 Agent：PDF 每页转 PNG 上传 DeepSeek Files API，LLM 视觉识别）
+PyMuPDF
