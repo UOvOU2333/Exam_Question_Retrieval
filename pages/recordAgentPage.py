@@ -12,6 +12,7 @@
   工具执行层禁直写，仅生成草稿。
 """
 import streamlit as st
+import os
 import uuid
 
 from utils.auth_utils import require_permission
@@ -39,6 +40,11 @@ from chains.record_agent_files import (
     delete_file_api,
     validate_image,
     validate_pdf,
+    save_pdf_to_local,
+    remove_local_pdf,
+    upload_pdf_pages_as_images,
+    delete_page_images,
+    cleanup_local_cache,
     download_to_local_cache,
 )
 from utils.render_utils import render_markdown
@@ -72,6 +78,8 @@ def record_agent_page():
         st.stop()
 
     # ===== 初始化会话状态 =====
+    # 页面加载时清理本地缓存中超过 1 小时的旧文件，避免缓存堆积
+    cleanup_local_cache()
     if "ra_session_id" not in st.session_state:
         st.session_state["ra_session_id"] = "ra_%s" % uuid.uuid4().hex[:8]
     if "ra_history" not in st.session_state:
@@ -130,7 +138,7 @@ def record_agent_page():
                     except Exception as e:
                         st.error("上传失败 %s: %s" % (f.name, e))
     with col_pdf:
-        st.caption("PDF 上传（≤32MiB）")
+        st.caption("PDF 上传（≤200MiB，每页转图片上传由 AI 视觉识别）")
         pdf_files = st.file_uploader(
             "上传 PDF",
             type=["pdf"],
@@ -150,19 +158,27 @@ def record_agent_page():
                         st.error("%s: %s" % (f.name, msg))
                         continue
                     try:
-                        file_id = upload_to_files_api(fbytes, f.name, api_key=api_key, is_pdf=True)
-                        # 缓存到本地供 pdf_parser 解析
-                        import os
-                        os.makedirs("static/cache", exist_ok=True)
-                        local_path = "static/cache/%s" % file_id
-                        with open(local_path, "wb") as fp:
-                            fp.write(fbytes)
-                        st.session_state["ra_pdf_local_paths"][file_id] = local_path
-                        pdf_library.add(file_id, f.name, len(fbytes), 0, "multi_question")
-                        record_log(operator="user:%s" % user_id, case_id=None,
-                                   action="pdf_upload", detail={"file_id": file_id, "filename": f.name},
-                                   session_id=sid)
-                        st.success("已上传 PDF: %s" % f.name)
+                        # PDF 每页渲染为 PNG 上传 Files API，LLM 视觉理解
+                        local_file_id, local_path = save_pdf_to_local(fbytes, f.name)
+                        st.session_state["ra_pdf_local_paths"][local_file_id] = local_path
+                        page_file_ids = upload_pdf_pages_as_images(
+                            local_path, f.name, api_key=api_key
+                        )
+                        # 渲染上传完成，删除本地临时 PDF
+                        remove_local_pdf(local_file_id, st.session_state["ra_pdf_local_paths"])
+                        pdf_library.add(
+                            local_file_id, f.name, len(fbytes),
+                            len(page_file_ids), "multi_question",
+                            page_file_ids=page_file_ids,
+                        )
+                        record_log(
+                            operator="user:%s" % user_id, case_id=None,
+                            action="pdf_upload",
+                            detail={"file_id": local_file_id, "filename": f.name,
+                                    "pages": len(page_file_ids)},
+                            session_id=sid,
+                        )
+                        st.success("已上传 PDF: %s（%d 页图片）" % (f.name, len(page_file_ids)))
                     except Exception as e:
                         st.error("上传失败 %s: %s" % (f.name, e))
 
@@ -187,8 +203,11 @@ def record_agent_page():
                 pc1.write("%s | %s | %d bytes" % (pf["filename"], pf["file_id"], pf["bytes_size"]))
                 with pc2:
                     if st.button("删除", key="del_pdf_%s" % pf["file_id"]):
-                        delete_file_api(pf["file_id"])
-                        pdf_library.remove(pf["file_id"])
+                        # 先删 Files API 上的页面图片，再清本地
+                        page_fids = pdf_library.remove(pf["file_id"])
+                        if page_fids:
+                            delete_page_images(page_fids, api_key=get_api_key())
+                        remove_local_pdf(pf["file_id"], st.session_state["ra_pdf_local_paths"])
                         st.rerun()
         if not images and not pdfs:
             st.info("本次会话未上传文件")
@@ -225,6 +244,8 @@ def record_agent_page():
                 fragment_store=fragment_store,
                 match_store=match_store,
                 pdf_local_paths=st.session_state["ra_pdf_local_paths"],
+                image_file_ids=[im["file_id"] for im in image_gallery.list_all()]
+                              + pdf_library.all_page_file_ids(),
             )
         st.session_state["ra_history"].append({"role": "assistant", "content": answer})
         if steps:

@@ -186,11 +186,11 @@ RECORD_AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "pdf_upload_and_split",
-            "description": "上传 PDF 并自动识别拆分为多道独立题目草稿。每题生成一份草稿待确认。解析失败时降级为整段文本草稿。",
+            "description": "确认 PDF 已上传并返回每页图片 file_id 列表。PDF 每页已渲染为图片上传 Files API，你在对话中能直接看到每页图片。请用视觉能力逐页识别题目，对每道题调用 create_question_draft 生成草稿。不依赖本地文本解析。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "file_id": {"type": "string", "description": "已上传 PDF 的 file_id"},
+                    "file_id": {"type": "string", "description": "已上传 PDF 的 file_id（local-pdf-xxx）"},
                     "mode": {"type": "string", "enum": ["multi_question", "rubric_match"], "description": "模式：多题识别 / 评分细则匹配（互斥）"},
                 },
                 "required": ["file_id", "mode"],
@@ -201,14 +201,25 @@ RECORD_AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "pdf_match_rubric",
-            "description": "对大 PDF 识别题目区与答案/评分细则区，将评分细则匹配到题库已有题目，生成匹配草稿。已有细则的跳过，低置信度高亮。不直接写库。",
+            "description": "将评分细则匹配到题库已有题目，生成匹配草稿。rubrics 由你用视觉能力从 PDF 答案区图片中识别后传入（题号+细则文本），工具做相似度匹配。已有细则的跳过，低置信度高亮。不直接写库。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "file_id": {"type": "string", "description": "已上传大 PDF 的 file_id"},
+                    "file_id": {"type": "string", "description": "已上传大 PDF 的 file_id（local-pdf-xxx）"},
+                    "rubrics": {
+                        "type": "array",
+                        "description": "你从 PDF 答案区图片视觉识别出的评分细则列表",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "question_no": {"type": "string", "description": "题号"},
+                                "content": {"type": "string", "description": "评分细则全文"},
+                            },
+                        },
+                    },
                     "rubric_type_name": {"type": "string", "description": "评分细则备注类型名称，默认'评分细则'"},
                 },
-                "required": ["file_id"],
+                "required": ["file_id", "rubrics"],
             },
         },
     },
@@ -364,119 +375,43 @@ def _execute_insert_question_image(args, ctx):
 
 
 def _execute_pdf_upload_and_split(args, ctx):
-    """PDF 上传多题识别拆分。解析失败降级为整段文本草稿。"""
+    """PDF 多题识别拆分。页面图片已上传 Files API，LLM 视觉识别后调 create_question_draft。"""
     file_id = args.get("file_id")
     mode = args.get("mode", "multi_question")
     if not file_id:
         return "缺少 file_id"
     if not ctx.pdf_library.contains(file_id):
         return "PDF file_id %s 不属于当前会话" % file_id
-    # 获取本地路径
-    local_path = (ctx.pdf_local_paths or {}).get(file_id)
-    if not local_path:
-        return "PDF 本地缓存路径缺失，请重新上传"
-    try:
-        result = parse_pdf(local_path, mode=mode)
-        record_log(
-            operator="agent:%s" % ctx.user_id,
-            case_id=None,
-            action="pdf_parse",
-            detail={"file_id": file_id, "page_count": result["page_count"]},
-            session_id=ctx.session_id,
-        )
-    except PdfParseError as e:
-        # 降级：整段文本草稿
-        record_log(
-            operator="agent:%s" % ctx.user_id,
-            case_id=None,
-            action="pdf_parse_degrade",
-            detail={"file_id": file_id, "reason": str(e)},
-            session_id=ctx.session_id,
-        )
-        draft_id = ctx.draft_store.add(
-            "create_question",
-            {"content": "（PDF 解析失败：%s，请手动拆分）\n\n[整段 PDF 文本待用户粘贴]" % e,
-             "answer": "", "analysis": "", "source": "", "analysis_source": "",
-             "year": "", "paper_type": "", "question_no": "",
-             "question_type": "", "knowledge_modules": ""},
-        )
-        return "PDF 解析失败（%s），已降级为整段文本草稿 %s，请手动拆分。" % (e, draft_id)
-
-    if mode == "multi_question":
-        questions = split_questions_by_boundary(result["pages"])
-        draft_ids = []
-        for q in questions:
-            snapshot = {
-                "content": q["content"], "answer": "", "analysis": "",
-                "source": "", "analysis_source": "",
-                "year": "", "paper_type": "",
-                "question_no": q.get("question_no") or "",
-                "question_type": "", "knowledge_modules": "",
-            }
-            did = ctx.draft_store.add("create_question", snapshot)
-            if did:
-                draft_ids.append(did)
-            # 保留原文片段供对照
-            ctx.fragment_store.add(
-                source_file_id=file_id,
-                page_range=q.get("page_range", ""),
-                text_content=q["content"],
-                region="question",
-                question_no_hint=q.get("question_no"),
-            )
-        record_log(
-            operator="agent:%s" % ctx.user_id,
-            case_id=None,
-            action="pdf_split",
-            detail={"file_id": file_id, "count": len(draft_ids)},
-            session_id=ctx.session_id,
-        )
-        return "PDF 多题识别完成，生成 %d 份草稿：%s" % (len(draft_ids), ", ".join(draft_ids))
-    else:
+    page_file_ids = ctx.pdf_library.get_page_file_ids(file_id)
+    if not page_file_ids:
+        return "PDF %s 无页面图片，请重新上传" % file_id
+    record_log(
+        operator="agent:%s" % ctx.user_id,
+        case_id=None,
+        action="pdf_split",
+        detail={"file_id": file_id, "page_count": len(page_file_ids)},
+        session_id=ctx.session_id,
+    )
+    if mode != "multi_question":
         return "mode=rubric_match 请使用 pdf_match_rubric 工具"
+    return (
+        "PDF %s 已上传 %d 页图片（file_id: %s）。"
+        "请用视觉能力逐页识别题目，对每道题调用 create_question_draft 生成草稿。"
+    ) % (file_id, len(page_file_ids), ", ".join(page_file_ids))
 
 
 def _execute_pdf_match_rubric(args, ctx):
-    """大 PDF 评分细则匹配。禁直写：不调用 create_question_note，仅生成匹配草稿。"""
+    """评分细则匹配。LLM 视觉识别细则后提供 rubrics 列表，工具做相似度匹配。禁直写。"""
     file_id = args.get("file_id")
     if not file_id:
         return "缺少 file_id"
     if not ctx.pdf_library.contains(file_id):
         return "PDF file_id %s 不属于当前会话" % file_id
-    rubric_type_name = args.get("rubric_type_name", "评分细则")
-    local_path = (ctx.pdf_local_paths or {}).get(file_id)
-    if not local_path:
-        return "PDF 本地缓存路径缺失，请重新上传"
-
-    try:
-        result = parse_pdf(local_path, mode="rubric_match")
-    except PdfParseError as e:
-        record_log(
-            operator="agent:%s" % ctx.user_id,
-            case_id=None,
-            action="pdf_parse_degrade",
-            detail={"file_id": file_id, "reason": str(e)},
-            session_id=ctx.session_id,
-        )
-        return "PDF 解析失败（%s），无法匹配评分细则" % e
-
-    pages = result["pages"]
-    partition = detect_question_answer_partition(pages)
-    if not partition:
-        return "无法识别题目区/答案区分界，请手动指定分界页码或降级为整段文本"
-    q_end, a_start = partition
-    record_log(
-        operator="agent:%s" % ctx.user_id,
-        case_id=None,
-        action="rubric_partition",
-        detail={"file_id": file_id, "question_end_page": q_end, "answer_start_page": a_start},
-        session_id=ctx.session_id,
-    )
-
-    answer_pages = [p for p in pages if p["page_no"] >= a_start]
-    rubrics = split_rubrics_by_question_no(answer_pages)
+    rubrics = args.get("rubrics") or []
     if not rubrics:
-        return "答案区未识别到评分细则"
+        return ("缺少 rubrics 参数。请用视觉能力识别 PDF 答案区的评分细则，"
+                "按题号切分后以 rubrics=[{\"question_no\":\"1\",\"content\":\"...\"}] 传入。")
+    rubric_type_name = args.get("rubric_type_name", "评分细则")
     record_log(
         operator="agent:%s" % ctx.user_id,
         case_id=None,

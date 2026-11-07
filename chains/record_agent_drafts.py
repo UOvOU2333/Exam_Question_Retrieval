@@ -189,7 +189,12 @@ class SessionImageGallery:
 
 
 class SessionPdfLibrary:
-    """会话 PDF 库。"""
+    """会话 PDF 库。
+
+    PDF 不直接上传 Files API（DeepSeek 不支持 PDF），而是每页渲染为 PNG
+    图片上传到 Files API，page_file_ids 存储每页图片的 file_id 列表，
+    供 LLM 视觉理解。file_id 为本地标识 local-pdf-xxx。
+    """
 
     def __init__(self, session_id):
         self.session_id = session_id
@@ -198,7 +203,7 @@ class SessionPdfLibrary:
     def _items(self):
         return st.session_state.setdefault(self._key, [])
 
-    def add(self, file_id, filename, bytes_size, page_count, mode):
+    def add(self, file_id, filename, bytes_size, page_count, mode, page_file_ids=None):
         if self.contains(file_id):
             return False
         self._items().append({
@@ -207,6 +212,7 @@ class SessionPdfLibrary:
             "bytes_size": bytes_size,
             "page_count": page_count,
             "mode": mode,
+            "page_file_ids": page_file_ids or [],
             "added_at": _now(),
             "deleted": False,
         })
@@ -218,13 +224,33 @@ class SessionPdfLibrary:
                 return True
         return False
 
+    def get(self, file_id):
+        for it in self._items():
+            if it["file_id"] == file_id and not it["deleted"]:
+                return it
+        return None
+
+    def get_page_file_ids(self, file_id):
+        """获取某 PDF 的所有页面图片 file_id 列表。"""
+        it = self.get(file_id)
+        return it["page_file_ids"] if it else []
+
+    def all_page_file_ids(self):
+        """获取所有未删除 PDF 的页面图片 file_id（扁平列表），供 LLM 视觉引用。"""
+        result = []
+        for it in self._items():
+            if not it["deleted"]:
+                result.extend(it.get("page_file_ids", []))
+        return result
+
     def remove(self, file_id):
+        """标记删除并返回 page_file_ids（供调用方删除 Files API 上的图片）。"""
         for it in self._items():
             if it["file_id"] == file_id and not it["deleted"]:
                 it["deleted"] = True
                 it["deleted_at"] = _now()
-                return True
-        return False
+                return it.get("page_file_ids", [])
+        return None
 
     def list_all(self):
         return [it for it in self._items() if not it["deleted"]]

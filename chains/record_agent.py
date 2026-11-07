@@ -59,8 +59,11 @@ def _build_record_system_prompt() -> str:
         "- 用简体中文回答\n"
         "- 生成草稿后告知草稿ID，提示用户在草稿列表确认\n"
         "- 处理图片时，insert_question_image 的 file_id 必须是用户已上传的图片\n"
-        "- 处理 PDF 时，先确认用户已上传 PDF 并选择模式\n"
-        "- 严禁编造题目内容，基于用户提供的图片/PDF/文本生成草稿"
+        "- 处理 PDF 时：PDF 每页已渲染为图片并上传，你在对话中能直接看到每页图片内容。\n"
+        "  用视觉能力识别题目后，逐题调用 create_question_draft 生成草稿；\n"
+        "  评分细则匹配时，视觉识别题号与细则文本后调用 pdf_match_rubric。\n"
+        "  不依赖本地文本解析，以你看到的页面图片为准。\n"
+        "- 严禁编造题目内容，基于你看到的图片/PDF页面图片/文本生成草稿"
     )
 
 
@@ -80,6 +83,7 @@ def run_record_agent(
     fragment_store=None,
     match_store=None,
     pdf_local_paths=None,
+    image_file_ids=None,
 ):
     """运行录题 Agent。
 
@@ -88,6 +92,9 @@ def run_record_agent(
         user_input: 用户输入
         api_key: DeepSeek API Key
         其余为各存储句柄与用户信息
+        image_file_ids: 本次对话要引用的图片 file_id 列表（Files API 上传的），
+            将以 {"type": "file", "file_id": ...} 内容块附在 user message 后，
+            使 LLM 能理解图片内容。仅传 file-api- 开头的图片 file_id。
 
     Returns:
         tuple[str, list[dict], list[dict]]: (answer, steps, draft_previews)
@@ -128,7 +135,16 @@ def run_record_agent(
     working = [{"role": "system", "content": _build_record_system_prompt()}]
     for m in history:
         working.append({"role": m["role"], "content": m["content"]})
-    working.append({"role": "user", "content": user_input})
+    # 构建 user message：若有图片引用，用 content 块数组让 LLM 理解图片内容
+    # （DeepSeek Files API 通过 {"type": "file", "file_id": ...} 引用已上传图片）
+    valid_image_ids = [fid for fid in (image_file_ids or []) if str(fid).startswith("file-api-")]
+    if valid_image_ids:
+        user_content = [{"type": "text", "text": user_input}]
+        for fid in valid_image_ids:
+            user_content.append({"type": "file", "file_id": fid})
+        working.append({"role": "user", "content": user_content})
+    else:
+        working.append({"role": "user", "content": user_input})
 
     tool_call_count = 0
     last_tool_signature = None
