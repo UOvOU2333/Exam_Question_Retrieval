@@ -256,6 +256,7 @@ data/knowledge_module_profile.json
 *.jpg
 *.jpeg
 # logo 文件夹豁免（入库，其余图片仍忽略）
+static
 !static/images/logo/
 !static/images/logo/*
 

@@ -267,35 +267,64 @@ def record_agent_page():
         for d in pending_drafts:
             with st.expander("%s [%s] %s" % (d["draft_id"], d["draft_type"], d["status"]), expanded=False):
                 snapshot = d.get("snapshot_after", {})
-                # MD 预览
-                content_md = snapshot.get("content", "")
-                if content_md:
-                    render_markdown(content_md, header="**题目**")
-                if snapshot.get("answer"):
-                    render_markdown(snapshot["answer"], header="**答案**")
-                if snapshot.get("analysis"):
-                    render_markdown(snapshot["analysis"], header="**解析**")
-                # 元信息
-                meta_keys = ["year", "paper_type", "question_no", "question_type", "knowledge_modules"]
-                meta = {k: snapshot.get(k, "") for k in meta_keys if snapshot.get(k)}
-                if meta:
-                    st.caption(" | ".join("%s: %s" % (k, v) for k, v in meta.items()))
-                # 确认/丢弃
-                dc1, dc2 = st.columns(2)
-                with dc1:
-                    if st.button("确认提交", key="commit_%s" % d["draft_id"], type="primary"):
-                        ok, msg = _commit_draft(d, draft_store, undo_stack, user_id, sid)
-                        if ok:
-                            st.success(msg)
-                        else:
-                            st.error(msg)
-                        st.rerun()
-                with dc2:
-                    if st.button("丢弃", key="discard_%s" % d["draft_id"]):
-                        draft_store.discard(d["draft_id"])
-                        record_log(operator="user:%s" % user_id, case_id=d.get("target_question_id"),
-                                   action="draft_discard", detail={"draft_id": d["draft_id"]}, session_id=sid)
-                        st.rerun()
+                editing = st.session_state.get("ra_editing_draft") == d["draft_id"]
+                if editing:
+                    # 编辑表单：可修改题目正文/答案/解析后保存
+                    edit_content = st.text_area(
+                        "题目正文", value=snapshot.get("content", ""), height=150,
+                        key="edit_content_%s" % d["draft_id"])
+                    edit_answer = st.text_area(
+                        "答案", value=snapshot.get("answer", ""), height=80,
+                        key="edit_answer_%s" % d["draft_id"])
+                    edit_analysis = st.text_area(
+                        "解析", value=snapshot.get("analysis", ""), height=100,
+                        key="edit_analysis_%s" % d["draft_id"])
+                    ec1, ec2 = st.columns(2)
+                    with ec1:
+                        if st.button("保存修改", key="save_edit_%s" % d["draft_id"], type="primary"):
+                            draft_store.update_snapshot(d["draft_id"], {
+                                "content": edit_content, "answer": edit_answer, "analysis": edit_analysis,
+                            })
+                            st.session_state.pop("ra_editing_draft", None)
+                            st.rerun()
+                    with ec2:
+                        if st.button("取消", key="cancel_edit_%s" % d["draft_id"]):
+                            st.session_state.pop("ra_editing_draft", None)
+                            st.rerun()
+                else:
+                    # MD 预览
+                    content_md = snapshot.get("content", "")
+                    if content_md:
+                        render_markdown(content_md, header="**题目**")
+                    if snapshot.get("answer"):
+                        render_markdown(snapshot["answer"], header="**答案**")
+                    if snapshot.get("analysis"):
+                        render_markdown(snapshot["analysis"], header="**解析**")
+                    # 元信息
+                    meta_keys = ["year", "paper_type", "question_no", "question_type", "knowledge_modules"]
+                    meta = {k: snapshot.get(k, "") for k in meta_keys if snapshot.get(k)}
+                    if meta:
+                        st.caption(" | ".join("%s: %s" % (k, v) for k, v in meta.items()))
+                    # 确认/编辑/丢弃
+                    dc1, dc2, dc3 = st.columns(3)
+                    with dc1:
+                        if st.button("确认提交", key="commit_%s" % d["draft_id"], type="primary"):
+                            ok, msg = _commit_draft(d, draft_store, undo_stack, user_id, sid)
+                            if ok:
+                                st.success(msg)
+                            else:
+                                st.error(msg)
+                            st.rerun()
+                    with dc2:
+                        if st.button("编辑", key="edit_%s" % d["draft_id"]):
+                            st.session_state["ra_editing_draft"] = d["draft_id"]
+                            st.rerun()
+                    with dc3:
+                        if st.button("丢弃", key="discard_%s" % d["draft_id"]):
+                            draft_store.discard(d["draft_id"])
+                            record_log(operator="user:%s" % user_id, case_id=d.get("target_question_id"),
+                                       action="draft_discard", detail={"draft_id": d["draft_id"]}, session_id=sid)
+                            st.rerun()
 
     # ===== 匹配确认 UI =====
     pending_matches = match_store.list_all()

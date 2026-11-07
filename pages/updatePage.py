@@ -120,11 +120,12 @@ def update():
             question_type_sel = st.selectbox("题型", options=type_options, index=ori_qt_idx)
             question_type = None if question_type_sel == "（未选择）" else question_type_sel
 
-            # 知识模块
+            # 知识模块（过滤掉数据库中已失效的值，避免 default 不在 options 内报错）
+            default_km = [km for km in ori_knowledge_modules if km in KNOWLEDGE_MODULES]
             knowledge_modules = st.multiselect(
                 "知识模块",
                 options=KNOWLEDGE_MODULES,
-                default=ori_knowledge_modules,
+                default=default_km,
                 placeholder="可多选",
             )
 

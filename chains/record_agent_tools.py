@@ -27,6 +27,7 @@
 """
 from dataclasses import dataclass
 from typing import Optional
+import re
 
 # 只读服务（禁直写：不 import create_question / update_question / create_question_note）
 from services.question_services import (
@@ -36,6 +37,7 @@ from services.question_services import (
 )
 from services.note_services import has_rubric_note, get_note_type_by_name
 from services.log_services import record_log
+from tools.exam_type_utils import KNOWLEDGE_MODULES, QUESTION_TYPES
 from chains.record_agent_drafts import (
     DraftStore,
     UndoStack,
@@ -104,8 +106,8 @@ RECORD_AGENT_TOOLS = [
                     "year": {"type": "string", "description": "年份，如 2024"},
                     "paper_type": {"type": "string", "description": "卷种，如 浙江首考"},
                     "question_no": {"type": "string", "description": "题号"},
-                    "question_type": {"type": "string", "description": "题型"},
-                    "knowledge_modules": {"type": "string", "description": "知识模块，逗号分隔"},
+                    "question_type": {"type": "string", "enum": QUESTION_TYPES, "description": "题型，必须从已有类型中选择"},
+                    "knowledge_modules": {"type": "string", "description": "知识模块，逗号分隔，只能用以下合法值：%s。不得编造新值。" % "、".join(KNOWLEDGE_MODULES)},
                 },
                 "required": ["content", "answer", "year", "paper_type", "question_no"],
             },
@@ -128,8 +130,8 @@ RECORD_AGENT_TOOLS = [
                     "year": {"type": "string", "description": "年份"},
                     "paper_type": {"type": "string", "description": "卷种"},
                     "question_no": {"type": "string", "description": "题号"},
-                    "question_type": {"type": "string", "description": "题型"},
-                    "knowledge_modules": {"type": "string", "description": "知识模块"},
+                    "question_type": {"type": "string", "enum": QUESTION_TYPES, "description": "题型，必须从已有类型中选择"},
+                    "knowledge_modules": {"type": "string", "description": "知识模块，逗号分隔，只能用以下合法值：%s" % "、".join(KNOWLEDGE_MODULES)},
                 },
                 "required": ["target_question_id"],
             },
@@ -139,15 +141,15 @@ RECORD_AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "add_note_draft",
-            "description": "为指定题目生成添加备注（如评分细则、标签）的草稿。不直接写库，需用户确认后提交。",
+            "description": "为指定题目生成添加备注的草稿。type_name 必须匹配备注类型表已有类型（如'评分细则'），不可编造。不直接写库，需用户确认后提交。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "target_question_id": {"type": "integer", "description": "目标题目ID"},
-                    "type_id": {"type": "integer", "description": "备注类型ID"},
+                    "type_name": {"type": "string", "description": "备注类型名称，必须匹配备注类型表已有类型（如'评分细则'、'其他版本解析'等），不可编造新类型"},
                     "content": {"type": "string", "description": "备注内容（Markdown）"},
                 },
-                "required": ["target_question_id", "type_id", "content"],
+                "required": ["target_question_id", "type_name", "content"],
             },
         },
     },
@@ -241,14 +243,70 @@ RECORD_AGENT_TOOLS = [
 
 
 # ========== 工具执行函数 ==========
+def _validate_question_type(val):
+    """校验题型，非法值置空。返回 (cleaned, warning)。"""
+    if not val or val in QUESTION_TYPES:
+        return val, ""
+    return None, "题型'%s'不在合法值内，已置空。合法题型：%s" % (val, "、".join(QUESTION_TYPES))
+
+
+def _validate_knowledge_modules(val):
+    """校验知识模块，按逗号拆分过滤非法项。返回 (cleaned_str, warning)。"""
+    if not val:
+        return val, ""
+    parts = [p.strip() for p in val.split(",") if p.strip()]
+    valid = [p for p in parts if p in KNOWLEDGE_MODULES]
+    invalid = [p for p in parts if p not in KNOWLEDGE_MODULES]
+    cleaned = ",".join(valid)
+    warn = ""
+    if invalid:
+        warn = "知识模块非法值已过滤：%s。合法值：%s" % ("、".join(invalid), "、".join(KNOWLEDGE_MODULES))
+    return cleaned, warn
+
+
+# 题目开头题号模式：1. / 1、 / 1． / 第1题 / 题1 等
+_LEADING_QNO_PATTERN = re.compile(
+    r"^\s*(?:第\s*\d+\s*题\s*[.、．。:]?\s*|题\s*\d+\s*[.、．。:]?\s*|\d+\s*[.、．]\s*)"
+)
+# 选择题类型集合
+_CHOICE_TYPES = {"单项选择题", "不定项选择题", "缺项选择题"}
+# 结尾括号模式（已有则不补）
+_TRAILING_PAREN_PATTERN = re.compile(r"[（(]\s*[）)]\s*$")
+
+
+def _normalize_question_content(content, question_type):
+    """题目正文格式规范化。
+
+    1. 去掉开头的题号（题号应放在 question_no 字段，不写进正文）
+    2. 选择题题干结尾补全角括号"（）"（已有则不补）
+
+    返回规范化后的 content。
+    """
+    if not content:
+        return content
+    # 去开头题号
+    cleaned = _LEADING_QNO_PATTERN.sub("", content, count=1)
+    # 选择题补全角括号
+    if question_type in _CHOICE_TYPES:
+        if not _TRAILING_PAREN_PATTERN.search(cleaned):
+            cleaned = cleaned.rstrip() + "（）"
+    return cleaned
+
+
 def _execute_create_question_draft(args, ctx):
     """创建题目草稿。禁直写：不调用 create_question。"""
     required = ["content", "answer", "year", "paper_type", "question_no"]
     for f in required:
         if not args.get(f):
             return "缺少必填字段: %s" % f
+    # 校验题型与知识模块（Agent 无权创建新类型，只能匹配已有合法值）
+    qt, qt_warn = _validate_question_type(args.get("question_type", ""))
+    km, km_warn = _validate_knowledge_modules(args.get("knowledge_modules", ""))
+    warnings = [w for w in (qt_warn, km_warn) if w]
+    # 题目正文格式规范化：去开头题号、选择题补全角括号
+    normalized_content = _normalize_question_content(args.get("content", ""), qt or "")
     snapshot = {
-        "content": args.get("content", ""),
+        "content": normalized_content,
         "answer": args.get("answer", ""),
         "analysis": args.get("analysis", ""),
         "source": args.get("source", ""),
@@ -256,8 +314,8 @@ def _execute_create_question_draft(args, ctx):
         "year": args.get("year", ""),
         "paper_type": args.get("paper_type", ""),
         "question_no": args.get("question_no", ""),
-        "question_type": args.get("question_type", ""),
-        "knowledge_modules": args.get("knowledge_modules", ""),
+        "question_type": qt or "",
+        "knowledge_modules": km,
     }
     draft_id = ctx.draft_store.add("create_question", snapshot)
     if draft_id is None:
@@ -270,7 +328,8 @@ def _execute_create_question_draft(args, ctx):
         session_id=ctx.session_id,
     )
     preview = _preview_snapshot(snapshot)
-    return "已创建草稿 %s，待用户确认后提交。\n\n%s" % (draft_id, preview)
+    warn_prefix = ("；".join(warnings) + "\n\n") if warnings else ""
+    return "已创建草稿 %s，待用户确认后提交。\n\n%s%s" % (draft_id, warn_prefix, preview)
 
 
 def _execute_update_question_draft(args, ctx):
@@ -295,6 +354,12 @@ def _execute_update_question_draft(args, ctx):
     for k in snapshot_after:
         if args.get(k) is not None:
             snapshot_after[k] = args[k]
+    # 校验题型与知识模块（Agent 无权创建新类型）
+    qt, qt_warn = _validate_question_type(snapshot_after.get("question_type", ""))
+    km, km_warn = _validate_knowledge_modules(snapshot_after.get("knowledge_modules", ""))
+    snapshot_after["question_type"] = qt or ""
+    snapshot_after["knowledge_modules"] = km
+    warnings = [w for w in (qt_warn, km_warn) if w]
     draft_id = ctx.draft_store.add(
         "update_question",
         snapshot_after,
@@ -310,24 +375,36 @@ def _execute_update_question_draft(args, ctx):
         detail={"draft_id": draft_id, "draft_type": "update_question"},
         session_id=ctx.session_id,
     )
-    return "已创建修改草稿 %s（目标题目 %s），待用户确认后提交。" % (draft_id, target_id)
+    warn_suffix = ("\n\n" + "；".join(warnings)) if warnings else ""
+    return "已创建修改草稿 %s（目标题目 %s），待用户确认后提交。%s" % (draft_id, target_id, warn_suffix)
 
 
 def _execute_add_note_draft(args, ctx):
-    """添加备注草稿。禁直写：不调用 create_question_note。"""
+    """添加备注草稿。禁直写：不调用 create_question_note。
+
+    type_name 必须匹配备注类型表已有类型（Agent 无权创建新备注类型），
+    找不到则返回可用类型列表提示 LLM。
+    """
     target_id = args.get("target_question_id")
-    type_id = args.get("type_id")
+    type_name = args.get("type_name")
     content = args.get("content")
-    if not all([target_id, type_id, content]):
-        return "缺少必填字段 target_question_id/type_id/content"
+    if not all([target_id, type_name, content]):
+        return "缺少必填字段 target_question_id/type_name/content"
     q = get_question_by_id(target_id)
     if not q:
         return "未找到ID为 %s 的题目" % target_id
     if q["isInRecycleBin"] == 1:
         return "题目ID %s 已在回收站" % target_id
+    # 匹配备注类型（Agent 无权创建新类型，只能用已有类型）
+    note_type = get_note_type_by_name(type_name)
+    if not note_type:
+        return ("备注类型'%s'不存在，不可编造新类型。请使用已有备注类型。"
+                "可用类型请通过检索确认。") % type_name
+    type_id = note_type["id"]
     snapshot = {
         "target_question_id": target_id,
         "type_id": type_id,
+        "type_name": type_name,
         "content": content,
     }
     draft_id = ctx.draft_store.add("add_note", snapshot, target_question_id=target_id)
@@ -337,10 +414,10 @@ def _execute_add_note_draft(args, ctx):
         operator="agent:%s" % ctx.user_id,
         case_id=target_id,
         action="draft_create",
-        detail={"draft_id": draft_id, "draft_type": "add_note"},
+        detail={"draft_id": draft_id, "draft_type": "add_note", "type_name": type_name},
         session_id=ctx.session_id,
     )
-    return "已创建备注草稿 %s（题目 %s），待用户确认后提交。" % (draft_id, target_id)
+    return "已创建备注草稿 %s（题目 %s，类型'%s'），待用户确认后提交。" % (draft_id, target_id, type_name)
 
 
 def _execute_insert_table_fragment(args, ctx):
