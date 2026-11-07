@@ -197,20 +197,51 @@ def update_password(user_id, new_password):
 # =====================
 # AI 助手使用白名单
 # =====================
+# purpose 取值：
+#   'ai_chat'       通用 AI 助手白名单（默认，向后兼容）
+#   'record_agent'  录题 Agent 白名单
+DEFAULT_AI_PURPOSE = "ai_chat"
+
+
 def _ensure_ai_whitelist_table():
     conn = get_conn()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS ai_whitelist (
-            user_id INTEGER PRIMARY KEY,
-            added_at TEXT,
-            added_by INTEGER
-        )
-    """)
+    # 兼容已迁移表（含 purpose 列）与未迁移表（无 purpose 列）
+    cur = conn.cursor()
+    cur.execute("PRAGMA table_info(ai_whitelist)")
+    cols = [r[1] for r in cur.fetchall()]
+    if "purpose" in cols:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_whitelist (
+                user_id INTEGER,
+                added_at TEXT,
+                added_by INTEGER,
+                purpose TEXT DEFAULT 'ai_chat',
+                PRIMARY KEY (user_id, purpose)
+            )
+        """)
+    else:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_whitelist (
+                user_id INTEGER PRIMARY KEY,
+                added_at TEXT,
+                added_by INTEGER
+            )
+        """)
     conn.commit()
     conn.close()
 
 
-def is_ai_enabled(user_id) -> bool:
+def _has_purpose_column():
+    """判断 ai_whitelist 表是否有 purpose 列。"""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("PRAGMA table_info(ai_whitelist)")
+    cols = [r[1] for r in cur.fetchall()]
+    conn.close()
+    return "purpose" in cols
+
+
+def is_ai_enabled(user_id, purpose=DEFAULT_AI_PURPOSE) -> bool:
     _ensure_ai_whitelist_table()
     conn = get_conn()
     cur = conn.cursor()
@@ -219,38 +250,62 @@ def is_ai_enabled(user_id) -> bool:
     if row and is_admin(row[0]):
         conn.close()
         return True
-    cur.execute("SELECT 1 FROM ai_whitelist WHERE user_id = ?", (user_id,))
+    if _has_purpose_column():
+        cur.execute(
+            "SELECT 1 FROM ai_whitelist WHERE user_id = ? AND purpose = ?",
+            (user_id, purpose),
+        )
+    else:
+        # 未迁移表无 purpose 列，退化为通用白名单
+        cur.execute("SELECT 1 FROM ai_whitelist WHERE user_id = ?", (user_id,))
     wl = cur.fetchone()
     conn.close()
     return wl is not None
 
 
-def get_ai_whitelist() -> list:
+def get_ai_whitelist(purpose=DEFAULT_AI_PURPOSE) -> list:
     _ensure_ai_whitelist_table()
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT user_id FROM ai_whitelist")
+    if _has_purpose_column():
+        cur.execute(
+            "SELECT user_id FROM ai_whitelist WHERE purpose = ?", (purpose,)
+        )
+    else:
+        cur.execute("SELECT user_id FROM ai_whitelist")
     rows = cur.fetchall()
     conn.close()
     return [r[0] for r in rows]
 
 
-def add_ai_whitelist(user_id, added_by):
+def add_ai_whitelist(user_id, added_by, purpose=DEFAULT_AI_PURPOSE):
     _ensure_ai_whitelist_table()
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
-        "INSERT OR IGNORE INTO ai_whitelist (user_id, added_at, added_by) VALUES (?, ?, ?)",
-        (user_id, datetime.now().isoformat(), added_by),
-    )
+    if _has_purpose_column():
+        cur.execute(
+            "INSERT OR IGNORE INTO ai_whitelist (user_id, added_at, added_by, purpose) VALUES (?, ?, ?, ?)",
+            (user_id, datetime.now().isoformat(), added_by, purpose),
+        )
+    else:
+        cur.execute(
+            "INSERT OR IGNORE INTO ai_whitelist (user_id, added_at, added_by) VALUES (?, ?, ?)",
+            (user_id, datetime.now().isoformat(), added_by),
+        )
     conn.commit()
     conn.close()
 
 
-def remove_ai_whitelist(user_id):
+def remove_ai_whitelist(user_id, purpose=DEFAULT_AI_PURPOSE):
     _ensure_ai_whitelist_table()
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("DELETE FROM ai_whitelist WHERE user_id = ?", (user_id,))
+    if _has_purpose_column():
+        cur.execute(
+            "DELETE FROM ai_whitelist WHERE user_id = ? AND purpose = ?",
+            (user_id, purpose),
+        )
+    else:
+        cur.execute("DELETE FROM ai_whitelist WHERE user_id = ?", (user_id,))
     conn.commit()
     conn.close()

@@ -21,3 +21,6 @@ pillow
 
 # 网络
 requests
+
+# PDF 解析（录题 Agent PDF 多题识别与评分细则匹配）
+pdfplumber

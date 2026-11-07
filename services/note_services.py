@@ -416,3 +416,44 @@ def search_notes(keyword, note_type_name=None, viewer_role=None, limit=50):
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# =====================
+# 录题 Agent 评分细则去重辅助（只读，不改现有签名）
+# =====================
+def has_rubric_note(question_id, rubric_type_id):
+    """判断某题是否已有指定类型（如评分细则）的未删除备注。
+
+    用于评分细则匹配时去重：已有细则的题目跳过上传。
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT 1 FROM question_notes
+        WHERE question_id = ? AND type_id = ? AND is_deleted = 0
+        LIMIT 1
+        """,
+        (question_id, rubric_type_id),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row is not None
+
+
+def get_note_type_by_name(name):
+    """按名称查备注类型，返回类型 dict 或 None（不存在时）。
+
+    用于获取"评分细则"类型 ID 供匹配上传。
+    """
+    conn = get_conn()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, type_name, created_by, created_at, updated_by, updated_at, is_deleted, visible_roles "
+        "FROM note_types WHERE type_name = ? AND is_deleted = 0",
+        (name,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return dict(row) if row else None

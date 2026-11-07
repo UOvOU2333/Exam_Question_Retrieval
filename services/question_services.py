@@ -453,3 +453,90 @@ def batch_change_paper_type(mappings):
     conn.commit()
     conn.close()
     return results
+
+
+# =====================
+# 录题 Agent 评分细则匹配辅助检索（只读，不改现有签名）
+# =====================
+def get_question_by_no_and_paper(question_no, paper_type=None):
+    """按题号 + 卷种精确查候选题目，排除回收站。
+
+    返回含 content/answer/analysis/question_no/paper_type/year/knowledge_modules
+    的完整字段列表，供评分细则匹配引擎计算相似度。
+    """
+    conn = get_conn()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    if paper_type is not None:
+        cur.execute(
+            """
+            SELECT questionID, content, answer, analysis, question_no,
+                   paper_type, year, question_type, knowledge_modules
+            FROM questions
+            WHERE isInRecycleBin = 0
+              AND CAST(question_no AS TEXT) = CAST(? AS TEXT)
+              AND paper_type = ?
+            ORDER BY questionID
+            """,
+            (question_no, paper_type),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT questionID, content, answer, analysis, question_no,
+                   paper_type, year, question_type, knowledge_modules
+            FROM questions
+            WHERE isInRecycleBin = 0
+              AND CAST(question_no AS TEXT) = CAST(? AS TEXT)
+            ORDER BY questionID
+            """,
+            (question_no,),
+        )
+    rows = cur.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def search_by_content_similarity(keyword, knowledge_modules=None, limit=1000):
+    """按题干关键词模糊查（LIKE），候选上限 limit。
+
+    可选按知识模块过滤（knowledge_modules 字段 LIKE 匹配）。
+    返回含 content 的完整字段列表供相似度计算。
+    """
+    if not keyword:
+        return []
+    conn = get_conn()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    like_kw = "%%%s%%" % keyword
+    if knowledge_modules:
+        like_km = "%%%s%%" % knowledge_modules
+        cur.execute(
+            """
+            SELECT questionID, content, answer, analysis, question_no,
+                   paper_type, year, question_type, knowledge_modules
+            FROM questions
+            WHERE isInRecycleBin = 0
+              AND content LIKE ?
+              AND knowledge_modules LIKE ?
+            ORDER BY questionID
+            LIMIT ?
+            """,
+            (like_kw, like_km, limit),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT questionID, content, answer, analysis, question_no,
+                   paper_type, year, question_type, knowledge_modules
+            FROM questions
+            WHERE isInRecycleBin = 0
+              AND content LIKE ?
+            ORDER BY questionID
+            LIMIT ?
+            """,
+            (like_kw, limit),
+        )
+    rows = cur.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
