@@ -10,7 +10,8 @@ from utils.permissions import can_view_analysis
 
 DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
 DEFAULT_MODEL = "deepseek-flash"
-MAX_ITERATIONS = 8
+MAX_ITERATIONS = 25
+TOOL_CALL_BUDGET = 15
 SEARCH_RESULT_LIMIT = 12
 CONTENT_PREVIEW_LEN = 100
 
@@ -92,6 +93,7 @@ def _build_system_prompt() -> str:
         "3. 对需要详细解答的题目，调用 get_question 获取完整内容、答案与解析。\n"
         "4. 若用户想了解题目备注（知识模块、评分细则、个人解析、其他版本解析等），调用 get_question_notes；若想通过备注内容找题，调用 search_notes。\n"
         "5. 综合检索结果组织回答，引用题目时标注【题目ID】。\n\n"
+        f"工具调用约束：全程最多调用 {TOOL_CALL_BUDGET} 次工具，能一次检索回答的不要拆成多步；达到预算后必须基于已有结果直接回答，不得再调用工具。\n\n"
         f"参数取值参考：\n"
         f"- question_type 可选：{QUESTION_TYPES}\n"
         f"- knowledge_modules 可选：{KNOWLEDGE_MODULES}\n"
@@ -247,8 +249,23 @@ def run_agent(
         working.append({"role": m["role"], "content": m["content"]})
     working.append({"role": "user", "content": user_input})
 
-    for _ in range(MAX_ITERATIONS):
-        payload = {"model": model, "messages": working, "tools": TOOLS, "stream": False}
+    tool_call_count = 0
+    last_tool_signature = None
+
+    for iteration in range(MAX_ITERATIONS):
+        force_answer = iteration >= MAX_ITERATIONS - 2 or tool_call_count >= TOOL_CALL_BUDGET
+        payload = {
+            "model": model,
+            "messages": working,
+            "stream": False,
+        }
+        if not force_answer:
+            payload["tools"] = TOOLS
+        if force_answer and tool_call_count > 0:
+            payload["messages"] = working + [{
+                "role": "user",
+                "content": "请基于以上已检索到的信息直接给出最终回答，不要再调用工具。如果信息不足，请如实告知用户并建议调整问法。",
+            }]
         try:
             resp = requests.post(url, headers=headers, json=payload, timeout=120)
         except requests.RequestException as e:
@@ -273,7 +290,7 @@ def run_agent(
         })
 
         tool_calls = msg.get("tool_calls")
-        if tool_calls:
+        if tool_calls and not force_answer:
             for tc in tool_calls:
                 fn = tc["function"]
                 tname = fn["name"]
@@ -281,6 +298,17 @@ def run_agent(
                     targs = json.loads(fn["arguments"] or "{}")
                 except json.JSONDecodeError:
                     targs = {}
+                signature = (tname, json.dumps(targs, sort_keys=True))
+                if signature == last_tool_signature:
+                    steps.append({"tool": tname, "args": targs, "result": "跳过：与上一次调用完全相同，避免循环"})
+                    working.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": "已跳过重复调用，请直接基于已有结果回答。",
+                    })
+                    continue
+                last_tool_signature = signature
+                tool_call_count += 1
                 result = _execute_tool(tname, targs, role=user_role)
                 steps.append({"tool": tname, "args": targs, "result": result[:1500]})
                 working.append({
