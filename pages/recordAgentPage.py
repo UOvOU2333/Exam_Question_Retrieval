@@ -87,7 +87,11 @@ _ACTION_LABELS = {
     "commit": "提交",
     "undo": "撤销",
     "rubric_upload": "上传细则",
+    "rubric_match": "细则匹配",
     "rubric_match_revise": "修正匹配",
+    "rubric_match_resolve": "细则处理",
+    "rubric_split": "细则拆分",
+    "pdf_split": "PDF拆分",
     "permission_denied": "拒绝访问",
     "permission_toggle": "权限切换",
 }
@@ -584,13 +588,10 @@ def record_agent_page():
                                     notes2.pop(i)
                                     draft_store.update_snapshot(d["draft_id"], {"notes": notes2})
                                     st.rerun()
-            if st.button("保存修改到草稿", key="ra_save_draft", type="secondary", use_container_width=True):
-                draft_store.update_snapshot(d["draft_id"], snap_update)
-                st.success("已保存修改到草稿")
-                st.rerun()
             ec1, ec2 = st.columns(2)
             with ec1:
-                if st.button("确认提交", key="ra_commit", type="primary"):
+                if st.button("保存并提交", key="ra_commit", type="primary"):
+                    # 提交前先保存当前编辑内容，保证提交的是最新版本
                     draft_store.update_snapshot(d["draft_id"], snap_update)
                     d2 = draft_store.get(d["draft_id"])
                     ok, msg = _commit_draft(d2, draft_store, undo_stack, user_id, sid)
@@ -651,16 +652,51 @@ def record_agent_page():
     pending_matches = match_store.list_all()
     if pending_matches:
         with st.expander("评分细则匹配结果（%d 条）" % len(pending_matches), expanded=False):
-            st.caption("确认后批量提交到对应题目的备注。低置信度高亮，已有细则跳过。")
+            st.caption("确认后批量提交到对应题目的备注。similar 表示该题已有基本一致的同类备注，可逐条选择覆盖/追加/跳过；未选择时默认跳过。")
             for m in pending_matches:
                 status = m["status"]
-                row_color = {"skipped": "gray", "low_confidence": "orange", "manual_match": "red"}.get(status, "green")
+                row_color = {
+                    "skipped": "gray", "low_confidence": "orange", "manual_match": "red",
+                    "similar": "violet",
+                }.get(status, "green")
                 with st.container():
                     mc1, mc2, mc3, mc4 = st.columns([2, 2, 2, 2])
                     mc1.write("**%s** 题号:%s" % (m["match_id"], m.get("rubric_question_no") or "?"))
                     mc2.write("匹配题目:%s" % (m.get("matched_question_id") or "无"))
                     mc3.write("置信度:%.2f" % m["confidence"])
                     mc4.markdown(":%s[%s]" % (row_color, status))
+                    if status == "similar":
+                        st.caption("已有同类备注相似度：%.2f | 当前处理：%s" % (
+                            m.get("similarity") or 0.0, m.get("revise_action") or "未选择",
+                        ))
+                        with st.expander("查看已有备注并选择处理方式 %s" % m["match_id"], expanded=False):
+                            st.markdown("**本次细则**")
+                            st.markdown(m.get("rubric_content") or "")
+                            st.markdown("**已有备注**")
+                            st.markdown(m.get("existing_content") or "")
+                            rb1, rb2, rb3 = st.columns(3)
+                            if rb1.button("覆盖", key="resolve_overwrite_%s" % m["match_id"]):
+                                match_store.update_status(m["match_id"], "similar", revise_action="overwrite")
+                                record_log(operator="user:%s" % user_id, case_id=m.get("matched_question_id"),
+                                           action="rubric_match_resolve",
+                                           detail={"match_id": m["match_id"], "action": "overwrite",
+                                                   "existing_note_id": m.get("existing_note_id")},
+                                           session_id=sid)
+                                st.rerun()
+                            if rb2.button("追加", key="resolve_append_%s" % m["match_id"]):
+                                match_store.update_status(m["match_id"], "similar", revise_action="append")
+                                record_log(operator="user:%s" % user_id, case_id=m.get("matched_question_id"),
+                                           action="rubric_match_resolve",
+                                           detail={"match_id": m["match_id"], "action": "append"},
+                                           session_id=sid)
+                                st.rerun()
+                            if rb3.button("跳过", key="resolve_skip_%s" % m["match_id"]):
+                                match_store.update_status(m["match_id"], "skipped", revise_action="skip")
+                                record_log(operator="user:%s" % user_id, case_id=m.get("matched_question_id"),
+                                           action="rubric_match_resolve",
+                                           detail={"match_id": m["match_id"], "action": "skip"},
+                                           session_id=sid)
+                                st.rerun()
                     if status in ("low_confidence", "manual_match"):
                         with st.expander("人工修正 %s" % m["match_id"], expanded=False):
                             new_qid = st.number_input("指定题目ID", value=0, key="fix_qid_%s" % m["match_id"])
@@ -672,8 +708,8 @@ def record_agent_page():
                                            detail={"match_id": m["match_id"], "new_qid": new_qid}, session_id=sid)
                                 st.rerun()
             if st.button("确认批量提交", type="primary"):
-                ok_count, fail_count = _commit_match_drafts(match_store, user_id, sid)
-                st.success("成功 %d 条，失败 %d 条" % (ok_count, fail_count))
+                ok_count, fail_count, skip_count = _commit_match_drafts(match_store, user_id, sid)
+                st.success("成功 %d 条，失败 %d 条，跳过 %d 条" % (ok_count, fail_count, skip_count))
                 st.rerun()
 
     # ===== chat_input（Streamlit 限制：必须在页面最底部，不能在列/容器/expander 内）=====
@@ -790,25 +826,46 @@ def _commit_draft(d, draft_store, undo_stack, user_id, sid):
 
 
 def _commit_match_drafts(match_store, user_id, sid):
-    """批量提交匹配草稿，逐条调 create_question_note，单条失败不阻塞其余。"""
+    """批量提交匹配草稿，逐条调 create_question_note，单条失败不阻塞其余。
+
+    similar 状态（已有基本一致的同类备注）按用户选择处理：
+      - overwrite：先软删除已有同类型备注，再新建
+      - append：直接新建（同类备注允许共存）
+      - 未选择 / skip：跳过
+    """
     ok_count = 0
     fail_count = 0
+    skip_count = 0
     for m in match_store.list_all():
         if m["status"] in ("skipped", "committed", "discarded"):
             continue
         if not m.get("matched_question_id") or not m.get("note_type_id"):
             continue
+        action = m.get("revise_action")
+        if m["status"] == "similar" and action not in ("overwrite", "append"):
+            skip_count += 1
+            continue
         try:
+            if m["status"] == "similar" and action == "overwrite" and m.get("existing_note_id"):
+                soft_delete_question_note(m["existing_note_id"], user_id)
             note_id = create_question_note(
                 m["matched_question_id"], m["note_type_id"], m["rubric_content"], user_id,
             )
+            if not note_id:
+                fail_count += 1
+                continue
             match_store.update_status(m["match_id"], "committed")
-            record_log(operator="user:%s" % user_id, case_id=m["matched_question_id"],
-                       action="rubric_upload", detail={"match_id": m["match_id"], "note_id": note_id}, session_id=sid)
+            record_log(
+                operator="user:%s" % user_id, case_id=m["matched_question_id"],
+                action="rubric_upload",
+                detail={"match_id": m["match_id"], "note_id": note_id,
+                        "resolve_action": action},
+                session_id=sid,
+            )
             ok_count += 1
-        except Exception as e:
+        except Exception:
             fail_count += 1
-    return ok_count, fail_count
+    return ok_count, fail_count, skip_count
 
 
 def _undo_op(op, user_id, sid):

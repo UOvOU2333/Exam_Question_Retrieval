@@ -3,6 +3,7 @@ from chains.rubric_matcher import (
     match_rubric_to_question,
     match_rubric_batch,
     CONFIDENCE_THRESHOLD,
+    SIMILARITY_THRESHOLD,
     CandidateTooLargeError,
 )
 
@@ -63,15 +64,33 @@ def test_knowledge_weighted():
     assert r["matched_question_id"] == 3
 
 
-def test_batch_skipped():
-    """已有细则的题目标记 skipped。"""
-    rubrics = [{"rubric_question_no": "1", "rubric_content": "", "rubric_knowledge": None}]
+def test_batch_similar_existing_note():
+    """已有同类型且内容基本一致 → similar，附带相似度与已有备注信息。"""
+    rubrics = [{"question_no": "1", "content": "第一点，第二点，第三点。"}]
     candidates = [_candidate(10, "1", "x")]
     results = match_rubric_batch(
         rubrics, candidates, rubric_type_id=1,
-        has_rubric_check=lambda qid, tid: qid == 10,
+        existing_notes_loader=lambda qid: [
+            {"note_id": 99, "type_id": 1, "content": "第一点，第二点，第三点。"},
+        ],
     )
-    assert results[0]["status"] == "skipped"
+    r = results[0]
+    assert r["status"] == "similar"
+    assert r["existing_note_id"] == 99
+    assert r["similarity"] >= SIMILARITY_THRESHOLD
+
+
+def test_batch_same_type_different_content_not_skipped():
+    """同类备注内容不同不应跳过（同类可共存，允许追加）。"""
+    rubrics = [{"question_no": "1", "content": "第一点，第二点，第三点。"}]
+    candidates = [_candidate(10, "1", "x")]
+    results = match_rubric_batch(
+        rubrics, candidates, rubric_type_id=1,
+        existing_notes_loader=lambda qid: [
+            {"note_id": 99, "type_id": 1, "content": "完全不同的另一份细则内容。"},
+        ],
+    )
+    assert results[0]["status"] == "pending"
 
 
 def test_candidate_too_large():
