@@ -330,15 +330,45 @@ _LEADING_QNO_PATTERN = re.compile(
 )
 # 选择题类型集合
 _CHOICE_TYPES = {"单项选择题", "不定项选择题", "缺项选择题"}
-# 结尾括号模式（已有则不补）
-_TRAILING_PAREN_PATTERN = re.compile(r"[（(]\s*[）)]\s*$")
+# 空括号模式（题干只需保留一个）
+_EMPTY_PAREN_PATTERN = re.compile(r"[（(]\s*[）)]")
+# 选项起始行：行首 A. / B. / C. / D.（允许前导空白）
+_OPTION_LINE_START_PATTERN = re.compile(r"(?m)^[ \t　]*(?=[A-D][\.．、])")
+# 行内选项标记，避免匹配英文单词中的字母
+_OPTION_MARKER_PATTERN = re.compile(r"(?<![A-Za-z])([A-D])[\.．、]")
+# 组合型选项内容：仅由序号 ①-⑧ 与空白组成
+_SERIAL_OPTION_PATTERN = re.compile(r"^[\s①②③④⑤⑥⑦⑧]+$")
+
+
+def _split_inline_options(block):
+    """把挤在同一行的 A/B/C/D 选项拆成每项一行。
+
+    组合型选项（每项仅由 ①②③④ 组成）保持一行，符合政治题排版习惯。
+    """
+    normalized = []
+    for line in block.split("\n"):
+        matches = list(_OPTION_MARKER_PATTERN.finditer(line))
+        if [m.group(1) for m in matches] != ["A", "B", "C", "D"]:
+            normalized.append(line)
+            continue
+        parts = []
+        for i, m in enumerate(matches):
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(line)
+            parts.append(line[m.start():end].strip())
+        contents = [p[2:].strip(" \t　") for p in parts]
+        if all(_SERIAL_OPTION_PATTERN.match(c) for c in contents if c):
+            normalized.append(" ".join(parts))
+        else:
+            normalized.extend(parts)
+    return "\n".join(normalized)
 
 
 def _normalize_question_content(content, question_type):
     """题目正文格式规范化。
 
     1. 去掉开头的题号（题号应放在 question_no 字段，不写进正文）
-    2. 选择题题干结尾补全角括号"（ ）"（已有则不补）
+    2. 选择题：题干保留一个空括号"（ ）"，选项行末尾多余的括号删除
+    3. 选择题：普通选项每项独占一行，组合型选项保持一行
 
     返回规范化后的 content。
     """
@@ -346,11 +376,26 @@ def _normalize_question_content(content, question_type):
         return content
     # 去开头题号
     cleaned = _LEADING_QNO_PATTERN.sub("", content, count=1)
-    # 选择题补全角括号
-    if question_type in _CHOICE_TYPES:
-        if not _TRAILING_PAREN_PATTERN.search(cleaned):
+    if question_type not in _CHOICE_TYPES:
+        return cleaned
+
+    option_start = _OPTION_LINE_START_PATTERN.search(cleaned)
+    if not option_start:
+        # 无选项区：在正文末尾补空括号
+        if not _EMPTY_PAREN_PATTERN.search(cleaned):
             cleaned = cleaned.rstrip() + "（ ）"
-    return cleaned
+        return cleaned
+
+    stem = cleaned[:option_start.start()].rstrip()
+    block = re.sub(
+        r"[ \t　]*[（(]\s*[）)][ \t　]*$", "", cleaned[option_start.start():], flags=re.MULTILINE
+    )
+    # 空括号只属于题干，先删选项行末尾误加的括号再拆分选项
+    block = _split_inline_options(block)
+    block = "\n".join(line.rstrip() for line in block.split("\n")).strip("\n")
+    if not _EMPTY_PAREN_PATTERN.search(stem):
+        stem = stem + "（ ）"
+    return stem + "\n" + block
 
 
 def _execute_create_question_draft(args, ctx):
@@ -423,6 +468,11 @@ def _execute_update_question_draft(args, ctx):
     km, km_warn = _validate_knowledge_modules(snapshot_after.get("knowledge_modules", ""))
     snapshot_after["question_type"] = qt or ""
     snapshot_after["knowledge_modules"] = km
+    # 正文被修改时按同一规范规范化
+    if args.get("content") is not None:
+        snapshot_after["content"] = _normalize_question_content(
+            snapshot_after.get("content", ""), snapshot_after.get("question_type", "")
+        )
     warnings = [w for w in (qt_warn, km_warn) if w]
     draft_id = ctx.draft_store.add(
         "update_question",
