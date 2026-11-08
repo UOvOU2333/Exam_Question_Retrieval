@@ -15,9 +15,9 @@
   顶部：Agent 权限控件 expander（紧急停止 + 7 粒度开关）
   上传文件：权限控件之下（expander）
   标题行：录题助手（左）| 草稿编号 number_input（右）——同 updatePage 题号位置
-  双栏：左侧手动修改区 | 右侧助手对话历史
-  预览：双栏之下，用 render_markdown 渲染选中草稿（参考上传/更新页调用）
-  操作记录：预览之下，简洁摘要 + 完整细节 expander
+  双栏：左侧手动修改区/预览区（标题与草稿编号之间有切换按钮）| 右侧助手对话历史
+  预览：切换后手动修改区变为预览区，用 render_markdown 渲染选中草稿
+  操作记录：双栏之下，简洁摘要 + 完整细节 expander
   撤销栈：操作记录之下
   匹配确认：有匹配草稿时显示
   chat_input：页面最底部（Streamlit 硬性限制）
@@ -170,6 +170,88 @@ def _render_operation_logs(sid):
         st.code("\n".join(detail_lines), language="text")
 
 
+def _collect_edit_snapshot(d):
+    """从 session_state 读取当前编辑控件值，供切换预览前自动保存。
+
+    预览模式下输入控件不再渲染，Streamlit 会在本轮结束时清理其状态，
+    因此切换前先把控件值写入草稿，避免切回编辑时丢失未保存的修改。
+    """
+    did = d["draft_id"]
+    snap = {}
+
+    if d["draft_type"] == "add_note":
+        target = st.session_state.get("ra_note_target_%s" % did)
+        type_name = st.session_state.get("ra_note_type_%s" % did)
+        content = st.session_state.get("ra_note_content_%s" % did)
+        if target is not None:
+            snap["target_question_id"] = int(target) if target else None
+        if type_name is not None:
+            note_type = get_note_type_by_name(type_name)
+            snap["type_name"] = type_name
+            snap["type_id"] = note_type["id"] if note_type else None
+        if content is not None:
+            snap["content"] = content
+        return snap
+
+    text_fields = (
+        ("content", "ra_edit_content_%s"),
+        ("answer", "ra_edit_answer_%s"),
+        ("analysis", "ra_edit_analysis_%s"),
+        ("year", "ra_edit_year_%s"),
+        ("paper_type", "ra_edit_pt_%s"),
+        ("question_no", "ra_edit_qno_%s"),
+    )
+    for field, key_tpl in text_fields:
+        value = st.session_state.get(key_tpl % did)
+        if value is not None:
+            snap[field] = value
+
+    question_type = st.session_state.get("ra_edit_qt_%s" % did)
+    if question_type is not None:
+        snap["question_type"] = "" if question_type == "（未选择）" else question_type
+
+    knowledge_modules = st.session_state.get("ra_edit_km_%s" % did)
+    if knowledge_modules is not None:
+        snap["knowledge_modules"] = ",".join(knowledge_modules)
+
+    return snap
+
+
+def _render_draft_preview(d):
+    """渲染草稿快照（预览模式，替代手动修改区的输入控件）。"""
+    snapshot = d.get("snapshot_after", {})
+
+    if d["draft_type"] == "add_note":
+        st.markdown("### 备注内容")
+        content = snapshot.get("content", "") or ""
+        if content.strip():
+            render_markdown(content)
+        else:
+            st.info("备注内容为空")
+        return
+
+    meta = []
+    for label, field in (
+        ("年份", "year"), ("卷种", "paper_type"), ("题号", "question_no"),
+        ("题型", "question_type"), ("知识模块", "knowledge_modules"),
+    ):
+        value = snapshot.get(field, "")
+        if value:
+            meta.append("%s：%s" % (label, value))
+    if meta:
+        st.caption(" | ".join(meta))
+
+    has_any = False
+    for label, field in (("题目内容", "content"), ("答案", "answer"), ("解析", "analysis")):
+        value = snapshot.get(field, "") or ""
+        if value.strip():
+            st.markdown("### %s" % label)
+            render_markdown(value)
+            has_any = True
+    if not has_any:
+        st.info("草稿内容为空")
+
+
 def _render_note_section(d, draft_store, user_id, sid):
     """备注栏目：展示草稿携带的备注 + 已有题目备注。
 
@@ -241,6 +323,11 @@ def record_agent_page():
     fragment_store = PdfFragmentStore(sid)
     match_store = MatchDraftStore(sid)
     perm_switches = PermissionSwitches(sid)
+
+    # ===== 标题行 + 草稿编号（仿 updatePage：标题左 | 编号右）=====
+    pending_drafts = draft_store.list_pending()
+    st.title("录题助手")
+    st.caption("当前用户：%s | 会话：%s" % (username, sid))
 
     # ===== 顶部：Agent 权限控件 =====
     _render_perm_controls(perm_switches, user_id, sid)
@@ -353,41 +440,52 @@ def record_agent_page():
                         remove_local_pdf(pf["file_id"], st.session_state["ra_pdf_local_paths"])
                         st.rerun()
 
-    # ===== 标题行 + 草稿编号（仿 updatePage：标题左 | 编号右）=====
-    pending_drafts = draft_store.list_pending()
-    col_title, col_draft = st.columns(2)
-    with col_title:
-        st.title("录题助手")
-        st.caption("当前用户：%s | 会话：%s" % (username, sid))
-    with col_draft:
-        if pending_drafts:
-            draft_idx = st.number_input(
-                "草稿编号（0=不选，1~%d 选择对应草稿）" % len(pending_drafts),
-                min_value=0, max_value=len(pending_drafts), value=0, step=1,
-                key="ra_draft_sel",
-            )
-        else:
-            st.info("暂无草稿，上传文件后与助手对话生成草稿")
-            draft_idx = 0
-
-    # ===== 双栏：左侧手动修改区 | 右侧助手对话 =====
+    # ===== 双栏：左侧手动修改区/预览区 | 右侧助手对话 =====
     edit_content = edit_answer = edit_analysis = None
     cur_dtype = None
-    cur_draft = None
+    show_preview = bool(st.session_state.get("ra_show_preview", False))
     col_edit, col_chat = st.columns(2)
 
-    # --- 左侧：手动修改区 ---
+    # --- 左侧：手动修改区/预览区 ---
     with col_edit:
-        st.subheader("手动修改区")
+        col_title, col_draft = st.columns([2, 3])
+        with col_title:
+            st.subheader("预览区" if show_preview else "手改区")
+        with col_draft:
+            if pending_drafts:
+                draft_idx = st.number_input(
+                    "草稿编号（0不选，1~%d 选择草稿）" % len(pending_drafts),
+                    min_value=0, max_value=len(pending_drafts), value=0, step=1,
+                    key="ra_draft_sel",
+                )
+            else:
+                st.info("暂无草稿")
+                draft_idx = 0
+        if st.button("预览" if not show_preview else "编辑",
+                     key="ra_toggle_preview", use_container_width=True):
+            # 切到预览前自动保存当前编辑内容，避免切回编辑时丢失
+            if not show_preview and pending_drafts:
+                cur_idx = int(st.session_state.get("ra_draft_sel", 0) or 0)
+                if 0 < cur_idx <= len(pending_drafts):
+                    pending_snap = _collect_edit_snapshot(pending_drafts[cur_idx - 1])
+                    if pending_snap:
+                        draft_store.update_snapshot(
+                            pending_drafts[cur_idx - 1]["draft_id"], pending_snap
+                        )
+            st.session_state["ra_show_preview"] = not show_preview
+            st.rerun()
         if pending_drafts and int(draft_idx) > 0:
             d = pending_drafts[int(draft_idx) - 1]
             snapshot = d.get("snapshot_after", {})
             cur_dtype = d["draft_type"]
-            cur_draft = d
             st.caption("%s [%s]" % (d["draft_id"], cur_dtype))
-            rich_markdown(IMAGE_DIR, True, None)
+            rich_markdown(IMAGE_DIR, True, None) if not show_preview else None
             snap_update = {}
-            if cur_dtype == "add_note":
+            if show_preview:
+                _render_draft_preview(d)
+                if cur_dtype != "add_note":
+                    _render_note_section(d, draft_store, user_id, sid)
+            elif cur_dtype == "add_note":
                 note_target = st.number_input(
                     "目标题目ID", value=snapshot.get("target_question_id") or 0, step=1,
                     key="ra_note_target_%s" % d["draft_id"],
@@ -440,7 +538,7 @@ def record_agent_page():
                     "question_type": question_type or "",
                     "knowledge_modules": ",".join(knowledge_modules),
                 }
-            if cur_dtype != "add_note":
+            if not show_preview and cur_dtype != "add_note":
                 with st.expander("添加备注到草稿", expanded=False):
                     ncl, ncr = st.columns([2, 1])
                     with ncr:
@@ -508,7 +606,7 @@ def record_agent_page():
                                action="draft_discard", detail={"draft_id": d["draft_id"]}, session_id=sid)
                     st.rerun()
         else:
-            st.info("请在上方选择草稿编号进行编辑修改")
+            st.info("请在上方选择草稿编号查看预览" if show_preview else "请在上方选择草稿编号进行编辑修改")
 
     # --- 右侧：助手对话历史 ---
     with col_chat:
@@ -526,34 +624,6 @@ def record_agent_page():
                     st.markdown(m["content"])
 
     st.divider()
-
-    # ===== 预览（对话下边，用 render_markdown 渲染，参考上传/更新页）=====
-    if edit_content is not None:
-        st.subheader("预览")
-        if cur_dtype == "add_note":
-            st.markdown("### 备注内容")
-            if edit_content.strip():
-                render_markdown(edit_content)
-            else:
-                st.info("开始输入后，这里会实时预览备注内容")
-        else:
-            has_any = False
-            if edit_content.strip():
-                st.markdown("### 题目内容")
-                render_markdown(edit_content)
-                has_any = True
-            if edit_answer.strip():
-                st.markdown("### 答案")
-                render_markdown(edit_answer)
-                has_any = True
-            if edit_analysis.strip():
-                st.markdown("### 解析")
-                render_markdown(edit_analysis)
-                has_any = True
-            if not has_any:
-                st.info("开始输入后，这里会实时预览 Markdown 内容")
-            if cur_draft is not None:
-                _render_note_section(cur_draft, draft_store, user_id, sid)
 
     # ===== 操作记录（预览下边，简洁摘要 + 完整细节 expander）=====
     with st.expander("操作记录", expanded=False):
