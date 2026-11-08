@@ -356,19 +356,8 @@ def record_agent_page():
     # ===== 标题行 + 草稿编号（仿 updatePage：标题左 | 编号右）=====
     pending_drafts = draft_store.list_pending()
     col_title, col_draft = st.columns(2)
-    with col_title:
-        st.title("录题助手")
-        st.caption("当前用户：%s | 会话：%s" % (username, sid))
-    with col_draft:
-        if pending_drafts:
-            draft_idx = st.number_input(
-                "草稿编号（0=不选，1~%d 选择对应草稿）" % len(pending_drafts),
-                min_value=0, max_value=len(pending_drafts), value=0, step=1,
-                key="ra_draft_sel",
-            )
-        else:
-            st.info("暂无草稿，上传文件后与助手对话生成草稿")
-            draft_idx = 0
+    st.title("录题助手")
+    st.caption("当前用户：%s | 会话：%s" % (username, sid))
 
     # ===== 双栏：左侧手动修改区 | 右侧助手对话 =====
     edit_content = edit_answer = edit_analysis = None
@@ -378,7 +367,19 @@ def record_agent_page():
 
     # --- 左侧：手动修改区 ---
     with col_edit:
-        st.subheader("手动修改区")
+        col_title, col_draft = st.columns([2,3])
+        with col_title:
+            st.subheader("手动修改区")
+        with col_draft:
+            if pending_drafts:
+                draft_idx = st.number_input(
+                    "草稿编号（0不选，1~%d 选择草稿）" % len(pending_drafts),
+                    min_value=0, max_value=len(pending_drafts), value=0, step=1,
+                    key="ra_draft_sel",
+                )
+            else:
+                st.info("暂无草稿")
+                draft_idx = 0
         if pending_drafts and int(draft_idx) > 0:
             d = pending_drafts[int(draft_idx) - 1]
             snapshot = d.get("snapshot_after", {})
