@@ -11,7 +11,7 @@
 只允许 import 只读服务：
     - question_services.get_question_by_id（校验目标题目存在）
     - question_services.get_question_by_no_and_paper / search_by_content_similarity（匹配候选）
-    - note_services.has_rubric_note / get_note_type_by_name（去重检查）
+    - note_services.get_note_type_by_name / get_question_notes（类型解析、已有备注相似度比对）
 
 工具清单（9 个）：
   录题工具（6）：
@@ -36,7 +36,7 @@ from services.question_services import (
     get_question_by_no_and_paper,
     search_by_content_similarity,
 )
-from services.note_services import has_rubric_note, get_note_type_by_name
+from services.note_services import get_note_type_by_name, get_question_notes
 from services.log_services import record_log
 from tools.exam_type_utils import KNOWLEDGE_MODULES, QUESTION_TYPES
 from chains.record_agent_drafts import (
@@ -310,13 +310,41 @@ def _validate_question_type(val):
     return None, "题型'%s'不在合法值内，已置空。合法题型：%s" % (val, "、".join(QUESTION_TYPES))
 
 
+# 知识模块分隔符：兼容中英文逗号、顿号、分号、空白
+_KM_SPLIT_PATTERN = re.compile(r"[,，、;；\s]+")
+
+
+def _match_knowledge_module(item):
+    """把 AI 返回的模块名归一到合法值（兼容'必修一：中国特色社会主义'等写法）。"""
+    item = item.strip()
+    if item in KNOWLEDGE_MODULES:
+        return item
+    for km in KNOWLEDGE_MODULES:
+        if item.startswith(km) or km in item:
+            return km
+    return None
+
+
 def _validate_knowledge_modules(val):
-    """校验知识模块，按逗号拆分过滤非法项。返回 (cleaned_str, warning)。"""
+    """校验知识模块，容错解析并过滤非法项。返回 (cleaned_str, warning)。"""
     if not val:
         return val, ""
-    parts = [p.strip() for p in val.split(",") if p.strip()]
-    valid = [p for p in parts if p in KNOWLEDGE_MODULES]
-    invalid = [p for p in parts if p not in KNOWLEDGE_MODULES]
+    if isinstance(val, (list, tuple)):
+        raw_parts = [str(p) for p in val]
+    else:
+        raw_parts = _KM_SPLIT_PATTERN.split(str(val))
+    valid = []
+    invalid = []
+    for part in raw_parts:
+        part = part.strip()
+        if not part:
+            continue
+        km = _match_knowledge_module(part)
+        if km:
+            if km not in valid:
+                valid.append(km)
+        else:
+            invalid.append(part)
     cleaned = ",".join(valid)
     warn = ""
     if invalid:
@@ -369,6 +397,7 @@ def _normalize_question_content(content, question_type):
     1. 去掉开头的题号（题号应放在 question_no 字段，不写进正文）
     2. 选择题：题干保留一个空括号"（ ）"，选项行末尾多余的括号删除
     3. 选择题：普通选项每项独占一行，组合型选项保持一行
+    4. 压缩多余空行，避免正文中出现无意义空行
 
     返回规范化后的 content。
     """
@@ -384,7 +413,7 @@ def _normalize_question_content(content, question_type):
         # 无选项区：在正文末尾补空括号
         if not _EMPTY_PAREN_PATTERN.search(cleaned):
             cleaned = cleaned.rstrip() + "（ ）"
-        return cleaned
+        return _collapse_blank_lines(cleaned)
 
     stem = cleaned[:option_start.start()].rstrip()
     block = re.sub(
@@ -395,7 +424,12 @@ def _normalize_question_content(content, question_type):
     block = "\n".join(line.rstrip() for line in block.split("\n")).strip("\n")
     if not _EMPTY_PAREN_PATTERN.search(stem):
         stem = stem + "（ ）"
-    return stem + "\n" + block
+    return _collapse_blank_lines(stem + "\n" + block)
+
+
+def _collapse_blank_lines(content):
+    """压缩正文中的多余空行，保持题干与选项紧凑排列。"""
+    return re.sub(r"\n[ \t　]*\n+", "\n", content)
 
 
 def _execute_create_question_draft(args, ctx):
@@ -686,12 +720,12 @@ def _execute_pdf_match_rubric(args, ctx):
     try:
         match_results = match_rubric_batch(
             rubrics, uniq_candidates, rubric_type_id or 0,
-            has_rubric_check=has_rubric_note if rubric_type_id else None,
+            existing_notes_loader=get_question_notes,
         )
     except CandidateTooLargeError as e:
         return "候选题目过多: %s" % e
 
-    # 生成匹配草稿
+    # 生成匹配草稿（同类备注允许共存；已有高度相似备注时标记 similar 交用户选择）
     match_ids = []
     for mr in match_results:
         r = mr["rubric"]
@@ -704,6 +738,9 @@ def _execute_pdf_match_rubric(args, ctx):
             match_features=mr["features"],
             confidence=mr["confidence"],
             note_type_id=rubric_type_id,
+            existing_note_id=mr.get("existing_note_id"),
+            existing_content=mr.get("existing_content"),
+            similarity=mr.get("similarity"),
         )
         ctx.match_store.update_status(mid, mr["status"])
         match_ids.append(mid)
@@ -713,12 +750,13 @@ def _execute_pdf_match_rubric(args, ctx):
         case_id=None,
         action="rubric_match",
         detail={"file_id": file_id, "match_count": len(match_ids),
-                "skipped": sum(1 for m in match_results if m["status"] == "skipped"),
+                "similar": sum(1 for m in match_results if m["status"] == "similar"),
                 "low_conf": sum(1 for m in match_results if m["status"] == "low_confidence")},
         session_id=ctx.session_id,
     )
     return ("评分细则匹配完成，生成 %d 份匹配草稿：%s。"
-            "请在匹配确认 UI 查看，确认后批量提交。") % (len(match_ids), ", ".join(match_ids))
+            "请在匹配确认 UI 查看，similar 状态（已有相似备注）可逐条选择覆盖/追加/跳过，"
+            "确认后批量提交。") % (len(match_ids), ", ".join(match_ids))
 
 
 def _execute_pdf_preview_fragment(args, ctx):

@@ -196,9 +196,15 @@ def detect_question_type(content, answer, question_no=None):
 
 
 def knowledge_modules_to_str(modules):
-    """将知识模块列表转为逗号分隔的存储字符串。"""
+    """将知识模块列表转为逗号分隔的存储字符串。
+
+    兼容传入逗号分隔字符串（草稿 snapshot 里存的是字符串），
+    避免把字符串按字符逐个 join 导致知识模块损坏。
+    """
     if not modules:
         return ""
+    if isinstance(modules, str):
+        return ",".join(m.strip() for m in modules.split(",") if m.strip())
     return ",".join(modules)
 
 

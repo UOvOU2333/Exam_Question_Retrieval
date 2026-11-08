@@ -17,6 +17,8 @@ import re
 
 # 置信度阈值
 CONFIDENCE_THRESHOLD = 0.6
+# 已有备注相似度阈值（达到即视为"基本一致"，交用户在覆盖/追加/跳过中选择）
+SIMILARITY_THRESHOLD = 0.75
 # 候选数量上限
 CANDIDATE_LIMIT = 1000
 
@@ -98,9 +100,10 @@ def match_rubric_to_question(rubric_item, candidate_questions, confidence_thresh
             "status": "manual_match",
         }
 
-    rubric_no = rubric_item.get("rubric_question_no")
-    rubric_knowledge = rubric_item.get("rubric_knowledge")
-    rubric_content = rubric_item.get("rubric_content", "")
+    # 兼容两种字段命名：skill 内部用 rubric_*，Agent 工具入参用简短字段
+    rubric_no = rubric_item.get("rubric_question_no") or rubric_item.get("question_no")
+    rubric_knowledge = rubric_item.get("rubric_knowledge") or rubric_item.get("knowledge")
+    rubric_content = rubric_item.get("rubric_content") or rubric_item.get("content", "")
 
     best_match = None
     best_conf = 0.0
@@ -160,20 +163,43 @@ def _question_no_match(rubric_no, cand_no):
     return str(rubric_no).strip() == str(cand_no).strip()
 
 
+def _find_similar_note(rubric_content, notes, note_type_id):
+    """在已有备注中找与本次细则最相似的一条（仅同类型）。
+
+    返回 {note_id, content, similarity}，无同类型备注返回 None。
+    """
+    best = None
+    for note in notes or []:
+        if note_type_id and note.get("type_id") != note_type_id:
+            continue
+        similarity = _text_similarity(rubric_content, note.get("content", "") or "")
+        if best is None or similarity > best["similarity"]:
+            best = {
+                "note_id": note.get("note_id"),
+                "content": note.get("content", "") or "",
+                "similarity": round(similarity, 4),
+            }
+    return best
+
+
 def match_rubric_batch(rubrics, candidates, rubric_type_id,
                        confidence_threshold=CONFIDENCE_THRESHOLD,
-                       has_rubric_check=None):
+                       existing_notes_loader=None,
+                       similarity_threshold=SIMILARITY_THRESHOLD):
     """批量匹配。
 
     Args:
         rubrics: list[dict]，每条细则
         candidates: list[dict]，候选题目
-        rubric_type_id: 评分细则备注类型 ID（用于去重检查）
+        rubric_type_id: 评分细则备注类型 ID（用于筛选同类型已有备注）
         confidence_threshold: 置信度阈值
-        has_rubric_check: 可选函数 (question_id, type_id) -> bool，用于判断已有细则；None 则跳过去重
+        existing_notes_loader: 可选函数 (question_id) -> list[dict]，读取该题已有备注；
+            传入后对匹配到的题目做同类型备注内容相似度比对
+        similarity_threshold: 相似度阈值，达到即标记 similar（已有基本一致的备注）
 
     Returns:
-        list[dict]: 每条细则的匹配结果
+        list[dict]: 每条细则的匹配结果。similar 状态额外带
+            existing_note_id / existing_content / similarity。
 
     Raises:
         CandidateTooLargeError: 候选数超 CANDIDATE_LIMIT
@@ -186,12 +212,20 @@ def match_rubric_batch(rubrics, candidates, rubric_type_id,
     results = []
     for rubric in rubrics:
         result = match_rubric_to_question(rubric, candidates, confidence_threshold)
-        # 去重：已有细则的题目标记 skipped
+        # 已有同类型备注做内容相似度比对；同类备注允许共存，不做类型级跳过
         if (result["matched_question_id"] is not None
-                and has_rubric_check is not None
-                and has_rubric_check(result["matched_question_id"], rubric_type_id)):
-            result["status"] = "skipped"
-            result["features"] = result.get("features", []) + ["already_has_rubric"]
+                and existing_notes_loader is not None):
+            notes = existing_notes_loader(result["matched_question_id"])
+            rubric_content = rubric.get("rubric_content") or rubric.get("content", "")
+            similar = _find_similar_note(
+                rubric_content, notes, rubric_type_id
+            )
+            if similar is not None and similar["similarity"] >= similarity_threshold:
+                result["status"] = "similar"
+                result["existing_note_id"] = similar["note_id"]
+                result["existing_content"] = similar["content"]
+                result["similarity"] = similar["similarity"]
+                result["features"] = result.get("features", []) + ["similar_existing_note"]
         results.append({
             "rubric": rubric,
             **result,

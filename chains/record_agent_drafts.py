@@ -311,7 +311,8 @@ class PdfFragmentStore:
 class MatchDraftStore:
     """评分细则匹配草稿。
 
-    状态流转：pending → skipped/low_confidence/manual_match/committed/discarded
+    状态流转：pending → skipped/low_confidence/manual_match/similar/committed/discarded
+    similar 表示该题已有基本一致的同类备注，由用户选择覆盖/追加/跳过。
     """
 
     def __init__(self, session_id):
@@ -329,7 +330,8 @@ class MatchDraftStore:
 
     def add(self, source_file_id, rubric_content, rubric_question_no=None,
             rubric_knowledge=None, matched_question_id=None, match_features=None,
-            confidence=0.0, note_type_id=None):
+            confidence=0.0, note_type_id=None, existing_note_id=None,
+            existing_content=None, similarity=None):
         match_id = self._next_id()
         self._items().append({
             "match_id": match_id,
@@ -341,6 +343,9 @@ class MatchDraftStore:
             "match_features": match_features or [],
             "confidence": confidence,
             "note_type_id": note_type_id,
+            "existing_note_id": existing_note_id,
+            "existing_content": existing_content,
+            "similarity": similarity,
             "status": "pending",
             "revise_action": None,
             "created_at": _now(),
