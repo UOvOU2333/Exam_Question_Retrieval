@@ -61,6 +61,7 @@ from chains.rubric_matcher import (
     CONFIDENCE_THRESHOLD,
     normalize_question_no,
 )
+from chains.note_format import normalize_rubric_content
 
 # 草稿/题目 ID 解析（消歧）
 _CN_NUM_MAP = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
@@ -211,7 +212,7 @@ RECORD_AGENT_TOOLS = [
                 "properties": {
                     "target_question_id": {"type": "integer", "description": "目标题目ID"},
                     "type_name": {"type": "string", "description": "备注类型名称，必须匹配备注类型表已有类型（如'评分细则'、'其他版本解析'等），不可编造新类型"},
-                    "content": {"type": "string", "description": "备注内容（Markdown）"},
+                    "content": {"type": "string", "description": "备注内容（Markdown）。评分细则必须按【评分细则】标题、①②③④分点各占一行、Markdown 等级量表、原文【超越下水示例】结构排版；保留原文措辞与赋分信息，不要概括改写"},
                 },
                 "required": ["target_question_id", "type_name", "content"],
             },
@@ -227,7 +228,7 @@ RECORD_AGENT_TOOLS = [
                 "properties": {
                     "target_draft_id": {"type": "string", "description": "目标草稿ID（draft-N 格式）"},
                     "type_name": {"type": "string", "description": "备注类型名称，必须匹配备注类型表已有类型，不可编造新类型"},
-                    "content": {"type": "string", "description": "备注内容（Markdown）"},
+                    "content": {"type": "string", "description": "备注内容（Markdown）。评分细则必须按【评分细则】标题、①②③④分点各占一行、Markdown 等级量表、原文【超越下水示例】结构排版；保留原文措辞与赋分信息，不要概括改写"},
                 },
                 "required": ["target_draft_id", "type_name", "content"],
             },
@@ -298,7 +299,7 @@ RECORD_AGENT_TOOLS = [
                                 "year": {"type": "string", "description": "年份（可空，如 2022）"},
                                 "paper_type": {"type": "string", "description": "卷种（可空，如 山东卷/天津卷）"},
                                 "question_hint": {"type": "string", "description": "题干关键词或材料主题（可空），用于候选检索"},
-                                "content": {"type": "string", "description": "评分细则全文"},
+                                "content": {"type": "string", "description": "评分细则全文（保留原文措辞；①②③④分点各占一行，等级量表用 Markdown 表格，原文示例保留）"},
                             },
                         },
                     },
@@ -600,6 +601,8 @@ def _execute_add_note_draft(args, ctx):
         return ("备注类型'%s'不存在，不可编造新类型。请使用已有备注类型。"
                 "可用类型请通过检索确认。") % type_name
     type_id = note_type["id"]
+    if type_name == "评分细则":
+        content = normalize_rubric_content(content)
     snapshot = {
         "target_question_id": target_id,
         "type_id": type_id,
@@ -644,6 +647,8 @@ def _execute_add_note_to_draft(args, ctx):
     note_type = get_note_type_by_name(type_name)
     if not note_type:
         return "备注类型'%s'不存在，不可编造新类型。请使用已有备注类型。" % type_name
+    if type_name == "评分细则":
+        content = normalize_rubric_content(content)
     snapshot = d.get("snapshot_after", {}) or {}
     notes = list(snapshot.get("notes", []))
     notes.append({
@@ -755,6 +760,9 @@ def _execute_pdf_match_rubric(args, ctx):
     if not rubrics:
         return ("缺少 rubrics 参数。请用视觉能力识别 PDF 答案区的评分细则，"
                 "按题号切分后以 rubrics=[{\"question_no\":\"1\",\"content\":\"...\"}] 传入。")
+    # 统一评分细则排版（标题/分点/等级量表表格），保留原文措辞
+    for rubric in rubrics:
+        rubric["content"] = normalize_rubric_content(rubric.get("content", ""))
     rubric_type_name = args.get("rubric_type_name", "评分细则")
     record_log(
         operator="agent:%s" % ctx.user_id,
