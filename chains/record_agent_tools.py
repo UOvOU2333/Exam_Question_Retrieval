@@ -35,6 +35,7 @@ from services.question_services import (
     get_question_by_id,
     get_question_by_no_and_paper,
     search_by_content_similarity,
+    find_questions_by_meta,
 )
 from services.note_services import get_note_type_by_name, get_question_notes
 from services.log_services import record_log
@@ -58,6 +59,7 @@ from chains.rubric_matcher import (
     match_rubric_batch,
     CandidateTooLargeError,
     CONFIDENCE_THRESHOLD,
+    normalize_question_no,
 )
 
 # 草稿/题目 ID 解析（消歧）
@@ -104,6 +106,7 @@ def _parse_target_ref(value):
 
 # 工具名白名单
 RECORD_AGENT_TOOL_NAMES = {
+    "find_question",
     "create_question_draft",
     "update_question_draft",
     "add_note_draft",
@@ -134,6 +137,23 @@ class RecordToolContext:
 
 # ========== 工具 Schema（OpenAI function calling 格式）==========
 RECORD_AGENT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "find_question",
+            "description": "按年份、卷种、题号在题库中匹配已有题目，返回候选 questionID。识别题目或评分细则前先调用本工具查重：已存在题目时禁止重复创建，改用 update_question_draft 或告知用户；未找到时才创建新题。只读，不写库。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "year": {"type": "string", "description": "年份（可空，如 2022）"},
+                    "paper_type": {"type": "string", "description": "卷种（可空，如 山东卷/天津卷）"},
+                    "question_no": {"type": "string", "description": "题号（可空，如 19(3)）"},
+                    "limit": {"type": "integer", "description": "最多返回候选数，默认 10"},
+                },
+                "required": [],
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -252,7 +272,7 @@ RECORD_AGENT_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "file_id": {"type": "string", "description": "已上传 PDF 的 file_id（local-pdf-xxx）"},
+                    "file_id": {"type": "string", "description": "已上传 PDF 的 file_id，必须使用用户消息 [会话PDF] 中列出的真实值（local-pdf-xxx），不得编造"},
                     "mode": {"type": "string", "enum": ["multi_question", "rubric_match"], "description": "模式：多题识别 / 评分细则匹配（互斥）"},
                 },
                 "required": ["file_id", "mode"],
@@ -263,18 +283,21 @@ RECORD_AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "pdf_match_rubric",
-            "description": "将评分细则匹配到题库已有题目，生成匹配草稿。rubrics 由你用视觉能力从 PDF 答案区图片中识别后传入（题号+细则文本），工具做相似度匹配。已有细则的跳过，低置信度高亮。不直接写库。",
+            "description": "将评分细则匹配到题库已有题目，生成匹配草稿。rubrics 由你用视觉能力从 PDF 答案区图片中识别后传入（题号+细则文本），工具自动匹配题库候选题目，不需要事先提供题目 ID；不要改用 add_note_draft 代替。已有细则的跳过，低置信度高亮。不直接写库。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "file_id": {"type": "string", "description": "已上传大 PDF 的 file_id（local-pdf-xxx）"},
+                    "file_id": {"type": "string", "description": "已上传大 PDF 的 file_id，必须使用用户消息 [会话PDF] 中列出的真实值（local-pdf-xxx），不得编造"},
                     "rubrics": {
                         "type": "array",
-                        "description": "你从 PDF 答案区图片视觉识别出的评分细则列表",
+                        "description": "你从 PDF 答案区图片视觉识别出的评分细则列表；尽量同时提供年份/卷种/题干关键词以提升匹配率",
                         "items": {
                             "type": "object",
                             "properties": {
-                                "question_no": {"type": "string", "description": "题号"},
+                                "question_no": {"type": "string", "description": "题号（如 19(3)）"},
+                                "year": {"type": "string", "description": "年份（可空，如 2022）"},
+                                "paper_type": {"type": "string", "description": "卷种（可空，如 山东卷/天津卷）"},
+                                "question_hint": {"type": "string", "description": "题干关键词或材料主题（可空），用于候选检索"},
                                 "content": {"type": "string", "description": "评分细则全文"},
                             },
                         },
@@ -430,6 +453,27 @@ def _normalize_question_content(content, question_type):
 def _collapse_blank_lines(content):
     """压缩正文中的多余空行，保持题干与选项紧凑排列。"""
     return re.sub(r"\n[ \t　]*\n+", "\n", content)
+
+
+def _execute_find_question(args, ctx):
+    """只读：按年份/卷种/题号匹配题库题目，返回 questionID 候选。"""
+    rows = find_questions_by_meta(
+        year=args.get("year"),
+        paper_type=args.get("paper_type"),
+        question_no=args.get("question_no"),
+        limit=int(args.get("limit") or 10),
+    )
+    if not rows:
+        return ("未匹配到已有题目。请核对年份/卷种/题号；确认不存在后再创建新题草稿，"
+                "不要编造 questionID。")
+    lines = []
+    for row in rows:
+        lines.append("- questionID=%s | 题号=%s | 年份=%s | 卷种=%s | 题干摘要=%s" % (
+            row.get("questionID"), row.get("question_no") or "?",
+            row.get("year") or "?", row.get("paper_type") or "?",
+            (row.get("content") or "")[:80],
+        ))
+    return "找到 %d 道候选题目：\n%s" % (len(rows), "\n".join(lines))
 
 
 def _execute_create_question_draft(args, ctx):
@@ -649,30 +693,52 @@ def _execute_insert_question_image(args, ctx):
     return "图片片段已生成（插入到 %s，方式 %s）：\n\n%s" % (target_field, anchor, md_img)
 
 
+def _pdf_refs_text(pdf_library):
+    """列出当前会话可用 PDF（file_id + 文件名），供报错时提示 LLM 不要编造。"""
+    refs = []
+    for pdf in pdf_library.list_all():
+        refs.append("%s (%s)" % (pdf.get("file_id"), pdf.get("filename")))
+    return "；".join(refs) if refs else "无"
+
+
 def _execute_pdf_upload_and_split(args, ctx):
-    """PDF 多题识别拆分。页面图片已上传 Files API，LLM 视觉识别后调 create_question_draft。"""
+    """PDF 多题识别拆分。页面已按批次渲染上传页图，LLM 视觉识别后调 create_question_draft。"""
     file_id = args.get("file_id")
     mode = args.get("mode", "multi_question")
     if not file_id:
         return "缺少 file_id"
     if not ctx.pdf_library.contains(file_id):
-        return "PDF file_id %s 不属于当前会话" % file_id
-    page_file_ids = ctx.pdf_library.get_page_file_ids(file_id)
+        return ("PDF file_id %s 不属于当前会话。当前会话可用 PDF：%s。"
+                "请使用原样 file_id，不要编造。") % (
+                    file_id, _pdf_refs_text(ctx.pdf_library),
+                )
+    active_pages = ctx.pdf_library.get_active_pages(file_id)
+    if active_pages:
+        page_file_ids = ctx.pdf_library.get_active_page_file_ids(file_id)
+        range_text = "本次批次为第 %s 页，只处理这些页面" % ",".join(
+            str(p) for p in active_pages
+        )
+    else:
+        page_file_ids = ctx.pdf_library.get_page_file_ids(file_id)
+        range_text = "当前会话已加载过页图"
     if not page_file_ids:
-        return "PDF %s 无页面图片，请重新上传" % file_id
+        return ("PDF %s 当前没有已渲染的页图。请让用户在 PDF 列表选择页范围，"
+                "点击“加载所选页图”后再处理。") % file_id
     record_log(
         operator="agent:%s" % ctx.user_id,
         case_id=None,
         action="pdf_split",
-        detail={"file_id": file_id, "page_count": len(page_file_ids)},
+        detail={"file_id": file_id, "page_count": len(page_file_ids),
+                "active_pages": active_pages},
         session_id=ctx.session_id,
     )
     if mode != "multi_question":
         return "mode=rubric_match 请使用 pdf_match_rubric 工具"
     return (
-        "PDF %s 已上传 %d 页图片（file_id: %s）。"
-        "请用视觉能力逐页识别题目，对每道题调用 create_question_draft 生成草稿。"
-    ) % (file_id, len(page_file_ids), ", ".join(page_file_ids))
+        "PDF %s：%s（已加载 %d 张页图，file_id: %s）。"
+        "请用视觉能力识别题目，对每道题调用 create_question_draft 生成草稿；"
+        "不要处理未加载的页面。"
+    ) % (file_id, range_text, len(page_file_ids), ", ".join(page_file_ids))
 
 
 def _execute_pdf_match_rubric(args, ctx):
@@ -681,7 +747,10 @@ def _execute_pdf_match_rubric(args, ctx):
     if not file_id:
         return "缺少 file_id"
     if not ctx.pdf_library.contains(file_id):
-        return "PDF file_id %s 不属于当前会话" % file_id
+        return ("PDF file_id %s 不属于当前会话。当前会话可用 PDF：%s。"
+                "请使用原样 file_id，不要编造。") % (
+                    file_id, _pdf_refs_text(ctx.pdf_library),
+                )
     rubrics = args.get("rubrics") or []
     if not rubrics:
         return ("缺少 rubrics 参数。请用视觉能力识别 PDF 答案区的评分细则，"
@@ -695,16 +764,21 @@ def _execute_pdf_match_rubric(args, ctx):
         session_id=ctx.session_id,
     )
 
-    # 检索候选题目：按题号 + 题干关键词
+    # 检索候选题目：优先按年份/卷种/题号匹配 questionID，再用题干关键词补充
     candidates = []
     for r in rubrics:
-        qno = r.get("question_no")
-        if qno:
-            candidates.extend(get_question_by_no_and_paper(qno))
-        # 题干关键词补充候选
-        kw = (r.get("content") or "")[:20]
-        if kw:
-            candidates.extend(search_by_content_similarity(kw, limit=200))
+        candidates.extend(find_questions_by_meta(
+            year=r.get("year"),
+            paper_type=r.get("paper_type"),
+            question_no=r.get("question_no"),
+            limit=200,
+        ))
+        # 题干关键词补充候选（优先用 LLM 识别的题干关键词）
+        hint = (r.get("question_hint") or "").strip()
+        if not hint:
+            hint = (r.get("content") or "")[:20]
+        if hint:
+            candidates.extend(search_by_content_similarity(hint, limit=200))
     # 去重
     seen = set()
     uniq_candidates = []
@@ -712,6 +786,9 @@ def _execute_pdf_match_rubric(args, ctx):
         if c["questionID"] not in seen:
             seen.add(c["questionID"])
             uniq_candidates.append(c)
+    if not uniq_candidates:
+        return ("未找到候选题目。请为每条细则补充年份(year)、卷种(paper_type)"
+                "或题干关键词(question_hint)后重试；不要编造题号。")
 
     # 获取评分细则类型 ID
     rubric_type = get_note_type_by_name(rubric_type_name)
@@ -755,8 +832,10 @@ def _execute_pdf_match_rubric(args, ctx):
         session_id=ctx.session_id,
     )
     return ("评分细则匹配完成，生成 %d 份匹配草稿：%s。"
-            "请在匹配确认 UI 查看，similar 状态（已有相似备注）可逐条选择覆盖/追加/跳过，"
-            "确认后批量提交。") % (len(match_ids), ", ".join(match_ids))
+            "请在左侧草稿区的“评分细则匹配草稿”中查看并处理"
+            "（similar 可选择覆盖/追加/跳过，可逐条或批量丢弃），确认后批量提交。") % (
+                len(match_ids), ", ".join(match_ids),
+            )
 
 
 def _execute_pdf_preview_fragment(args, ctx):
@@ -781,6 +860,8 @@ def _execute_record_tool(name, args, ctx):
     if name not in RECORD_AGENT_TOOL_NAMES:
         return "未知工具或非录题 Agent 工具: %s" % name
     try:
+        if name == "find_question":
+            return _execute_find_question(args, ctx)
         if name == "create_question_draft":
             return _execute_create_question_draft(args, ctx)
         if name == "update_question_draft":

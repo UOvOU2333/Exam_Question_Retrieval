@@ -1,3 +1,4 @@
+import re
 import sqlite3
 
 from tools.exam_type_utils import (
@@ -495,6 +496,60 @@ def get_question_by_no_and_paper(question_no, paper_type=None):
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def find_questions_by_meta(year=None, paper_type=None, question_no=None, limit=20):
+    """按年份、卷种、题号匹配已有题目（返回 questionID 候选）。
+
+    供 Agent 识别题目后查重、评分细则匹配使用：
+      - 卷种/年份使用 LIKE 包含匹配，兼容“山东卷”与“2022年山东省...”写法
+      - 题号支持原号与主号（19(3) -> 19、19(%）、19.%）
+      - 严格条件无结果时退回仅按题号匹配
+      - 三个条件都为空时返回空列表（避免全库扫描）
+    """
+    if not year and not paper_type and not question_no:
+        return []
+
+    fields = """
+        SELECT questionID, content, answer, analysis, question_no,
+               paper_type, year, question_type, knowledge_modules
+        FROM questions
+    """
+    conn = get_conn()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    def _query(with_meta):
+        conditions = ["isInRecycleBin = 0"]
+        params = []
+        if question_no:
+            qno = str(question_no).strip()
+            match = re.match(r"(\d+)", qno)
+            main_no = match.group(1) if match else qno
+            conditions.append(
+                "(CAST(question_no AS TEXT) = ? OR CAST(question_no AS TEXT) LIKE ?"
+                " OR CAST(question_no AS TEXT) LIKE ? OR CAST(question_no AS TEXT) LIKE ?)"
+            )
+            params.extend([qno, main_no, main_no + "(%", main_no + ".%"])
+        if with_meta and paper_type:
+            conditions.append("paper_type LIKE ?")
+            params.append("%" + str(paper_type).strip() + "%")
+        if with_meta and year:
+            year_text = str(year).strip()
+            conditions.append("(CAST(year AS TEXT) = ? OR CAST(year AS TEXT) LIKE ?)")
+            params.extend([year_text, "%" + year_text + "%"])
+        sql = fields + " WHERE " + " AND ".join(conditions) + " ORDER BY questionID LIMIT ?"
+        cur.execute(sql, params + [int(limit)])
+        return [dict(r) for r in cur.fetchall()]
+
+    try:
+        rows = _query(with_meta=True)
+        if not rows and question_no:
+            # 卷种/年份写法与题库不一致时，退回仅按题号匹配
+            rows = _query(with_meta=False)
+        return rows
+    finally:
+        conn.close()
 
 
 def search_by_content_similarity(keyword, knowledge_modules=None, limit=1000):

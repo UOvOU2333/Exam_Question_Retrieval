@@ -43,6 +43,7 @@ VALID_LOG_ACTIONS = {
     "rubric_split",
     "rubric_match",
     "rubric_match_revise",
+    "rubric_match_resolve",
     "rubric_upload",
 }
 
