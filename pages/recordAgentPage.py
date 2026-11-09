@@ -12,7 +12,7 @@
   工具执行层禁直写，仅生成草稿。
 
 布局（仿照试题更新页）：
-  顶部：Agent 权限控件 expander（紧急停止 + 7 粒度开关）
+  顶部：历史会话 expander（恢复/新建）| Agent 权限控件 expander
   上传文件：权限控件之下（expander）
   标题行：录题助手（左）| 草稿编号 number_input（右）——同 updatePage 题号位置
   双栏：左侧手动修改区/预览区（标题与草稿编号之间有切换按钮）| 右侧助手对话历史
@@ -21,11 +21,22 @@
   撤销栈：操作记录之下
   匹配确认：有匹配草稿时显示
   chat_input：页面最底部（Streamlit 硬性限制）
+
+PDF 处理：
+  上传 PDF 不限制页数（仅文件大小 ≤100MiB），只保存本地并读取页数；
+  用户在 PDF 列表选择页范围分批渲染（默认覆盖到最大页号，支持非连续页号），
+  只渲染上传所选页图并传给 Agent。已处理页记录在会话状态中。
+
+会话历史：
+  关键操作前后把 session_state 快照写入 record_agent_sessions 表；
+  恢复时检测文件是否超过 24 小时未使用以及本地 PDF 是否存在，
+  过期文件清空引用并提示重新上传或重新加载批次。
 """
 import streamlit as st
 import os
 import uuid
 import json
+from datetime import datetime
 
 from utils.auth_utils import require_permission
 from utils.permissions import has_permission, is_admin
@@ -48,6 +59,12 @@ from services.note_services import (
     get_question_notes,
 )
 from chains.record_agent import run_record_agent, get_api_key
+from services.record_session_services import (
+    build_snapshot,
+    save_session,
+    list_sessions,
+    restore_session,
+)
 from chains.record_agent_perm import PermissionSwitches, OP_TYPE_LABELS
 from chains.record_agent_drafts import (
     DraftStore,
@@ -68,7 +85,9 @@ from chains.record_agent_files import (
     delete_page_images,
     cleanup_local_cache,
     download_to_local_cache,
+    FILE_EXPIRE_SECONDS,
 )
+from chains.pdf_to_images import get_pdf_page_count, parse_page_selection, PdfRenderError
 from utils.render_utils import render_markdown
 from utils.multi_func import rich_markdown
 from utils.note_utils import display_notes_list, compact_note_type_selector
@@ -76,6 +95,33 @@ from tools.exam_type_utils import QUESTION_TYPES, KNOWLEDGE_MODULES
 
 IMAGE_DIR = "static/images/questions"
 os.makedirs(IMAGE_DIR, exist_ok=True)
+
+
+def _batch_pages(batch):
+    """取批次页号列表，兼容旧版 start/end 结构。"""
+    pages = batch.get("pages")
+    if pages:
+        return [int(p) for p in pages]
+    if batch.get("start") is not None and batch.get("end") is not None:
+        return list(range(int(batch["start"]), int(batch["end"]) + 1))
+    return []
+
+
+def _format_page_ranges(page_nos):
+    """把页号列表压缩成区间字符串，如 '1-30,45-60'。"""
+    pages = sorted({int(n) for n in page_nos or []})
+    if not pages:
+        return ""
+    parts = []
+    start = prev = pages[0]
+    for page_no in pages[1:]:
+        if page_no == prev + 1:
+            prev = page_no
+            continue
+        parts.append("%d-%d" % (start, prev) if start != prev else str(start))
+        start = prev = page_no
+    parts.append("%d-%d" % (start, prev) if start != prev else str(start))
+    return ",".join(parts)
 
 
 _ACTION_LABELS = {
@@ -97,18 +143,41 @@ _ACTION_LABELS = {
 }
 
 
+@st.dialog("确认紧急停止")
+def _confirm_emergency_stop(switches, user_id, sid):
+    """紧急停止二次确认：中断 AI 会话并禁止 Agent 所有工具操作。"""
+    st.warning("将立即中断当前 AI 会话，并禁止 Agent 的所有工具操作。")
+    c1, c2 = st.columns(2)
+    if c1.button("确认停止", type="primary", key="ra_stop_confirm"):
+        switches.set_emergency_stop(True)
+        record_log(operator="user:%s" % user_id, case_id=None,
+                   action="permission_toggle",
+                   detail={"switch": "emergency_stop", "before": False, "after": True},
+                   session_id=sid)
+        st.rerun()
+    if c2.button("取消", key="ra_stop_cancel"):
+        st.rerun()
+
+
+@st.dialog("恢复运行")
+def _confirm_resume_agent(switches, user_id, sid):
+    """恢复运行二次确认。"""
+    st.info("确认后将恢复 Agent 运行与工具操作。")
+    c1, c2 = st.columns(2)
+    if c1.button("确认恢复", type="primary", key="ra_resume_confirm"):
+        switches.set_emergency_stop(False)
+        record_log(operator="user:%s" % user_id, case_id=None,
+                   action="permission_toggle",
+                   detail={"switch": "emergency_stop", "before": True, "after": False},
+                   session_id=sid)
+        st.rerun()
+    if c2.button("取消", key="ra_resume_cancel"):
+        st.rerun()
+
+
 def _render_perm_controls(switches, user_id, sid):
-    """渲染 Agent 权限控件 expander（紧急停止 + 7 粒度开关）。"""
+    """渲染 Agent 权限控件 expander（7 个操作粒度开关；紧急停止按钮在标题行）。"""
     with st.expander("Agent 权限控件", expanded=not switches.is_default()):
-        cur_es = switches.get_emergency_stop()
-        new_es = st.checkbox("紧急停止（禁止 Agent 一切写操作）", value=cur_es, key="ra_perm_es_%s" % sid)
-        if new_es != cur_es:
-            switches.set_emergency_stop(new_es)
-            record_log(operator="user:%s" % user_id, case_id=None,
-                       action="permission_toggle",
-                       detail={"switch": "emergency_stop", "before": cur_es, "after": new_es},
-                       session_id=sid)
-        st.markdown("---")
         st.caption("操作粒度开关")
         cur_sw = switches.get_all()
         cols = st.columns(2)
@@ -328,10 +397,92 @@ def record_agent_page():
     match_store = MatchDraftStore(sid)
     perm_switches = PermissionSwitches(sid)
 
-    # ===== 标题行 + 草稿编号（仿 updatePage：标题左 | 编号右）=====
+    # ===== 会话持久化辅助 =====
+    def _session_title():
+        """用首条用户指令前 20 字作为历史会话标题。"""
+        for message in st.session_state.get("ra_history", []):
+            if message.get("role") == "user" and (message.get("content") or "").strip():
+                return message["content"].strip()[:20]
+        return "会话 %s" % sid
+
+    def _persist():
+        """把当前会话状态写入历史记录（无实际内容的空会话不保存）。"""
+        snapshot = build_snapshot(st.session_state, sid)
+        has_content = bool(snapshot.get("ra_history")) or any(snapshot.get(key) for key in (
+            "record_drafts_%s" % sid, "record_images_%s" % sid,
+            "record_pdfs_%s" % sid, "record_matches_%s" % sid,
+        ))
+        if not has_content:
+            return
+        try:
+            save_session(sid, user_id, _session_title(), snapshot)
+        except Exception:
+            # 历史保存失败不阻断主流程
+            pass
+
+    def _save_and_rerun():
+        _persist()
+        st.rerun()
+
+    # ===== 标题行：左标题/会话信息，右侧历史会话入口与紧急停止 =====
     pending_drafts = draft_store.list_pending()
-    st.title("录题助手")
-    st.caption("当前用户：%s | 会话：%s" % (username, sid))
+    title_col, history_col, stop_col = st.columns([2.4, 1, 1])
+    with title_col:
+        st.title("录题助手")
+        st.caption("当前用户：%s | 会话：%s" % (username, sid))
+    with history_col:
+        with st.popover("历史会话"):
+            history_rows = list_sessions(user_id)
+            if history_rows:
+                history_labels = [
+                    "%s | %s | 草稿%d条 | 对话%d条 | %s" % (
+                        row["sid"], (row["updated_at"] or "")[:19],
+                        row["drafts"], row["messages"], row["title"],
+                    )
+                    for row in history_rows
+                ]
+                label_by_sid = {
+                    row["sid"]: label for row, label in zip(history_rows, history_labels)
+                }
+                pick_sid = st.selectbox(
+                    "选择要恢复的会话", options=list(label_by_sid.keys()),
+                    format_func=lambda sid: label_by_sid[sid], key="ra_history_pick",
+                )
+                if st.button("恢复会话", key="ra_history_restore"):
+                    _persist()
+                    restored, warnings = restore_session(
+                        st.session_state, pick_sid, user_id
+                    )
+                    if restored is None:
+                        st.error("会话不存在或无权访问")
+                    else:
+                        st.session_state["ra_restore_warnings"] = warnings
+                        st.rerun()
+            else:
+                st.caption("暂无历史会话")
+            if st.button("新建会话", key="ra_history_new"):
+                _persist()
+                st.session_state["ra_session_id"] = "ra_%s" % uuid.uuid4().hex[:8]
+                st.session_state["ra_history"] = []
+                st.session_state["ra_pdf_local_paths"] = {}
+                st.session_state.pop("ra_active_batch", None)
+                st.session_state.pop("ra_restore_warnings", None)
+                st.rerun()
+    with stop_col:
+        if perm_switches.get_emergency_stop():
+            st.caption("已紧急停止")
+            if st.button("恢复运行", key="ra_emergency_resume", use_container_width=True):
+                _confirm_resume_agent(perm_switches, user_id, sid)
+        else:
+            if st.button("紧急停止", type="primary", key="ra_emergency_stop",
+                         use_container_width=True):
+                _confirm_emergency_stop(perm_switches, user_id, sid)
+
+    # ===== 历史会话恢复提示 =====
+    restore_warnings = st.session_state.pop("ra_restore_warnings", None)
+    if restore_warnings:
+        st.warning("历史会话已恢复，但以下文件已过期：\n"
+                   + "\n".join("- %s" % w for w in restore_warnings))
 
     # ===== 顶部：Agent 权限控件 =====
     _render_perm_controls(perm_switches, user_id, sid)
@@ -398,24 +549,23 @@ def record_agent_page():
                         try:
                             local_file_id, local_path = save_pdf_to_local(fbytes, f.name)
                             st.session_state["ra_pdf_local_paths"][local_file_id] = local_path
-                            page_file_ids = upload_pdf_pages_as_images(
-                                local_path, f.name, api_key=api_key
-                            )
-                            remove_local_pdf(local_file_id, st.session_state["ra_pdf_local_paths"])
+                            page_count = get_pdf_page_count(local_path)
                             pdf_library.add(
                                 local_file_id, f.name, len(fbytes),
-                                len(page_file_ids), "multi_question",
-                                page_file_ids=page_file_ids,
+                                page_count, "multi_question",
+                                page_file_ids=[],
                             )
                             record_log(
                                 operator="user:%s" % user_id, case_id=None,
                                 action="pdf_upload",
                                 detail={"file_id": local_file_id, "filename": f.name,
-                                        "pages": len(page_file_ids)},
+                                        "pages": page_count},
                                 session_id=sid,
                             )
                             st.session_state[file_sig] = True
-                            st.success("已上传 PDF: %s（%d 页图片）" % (f.name, len(page_file_ids)))
+                            st.success("已上传 PDF: %s（共 %d 页，请在 PDF 列表选择每批处理范围）" % (
+                                f.name, page_count,
+                            ))
                         except Exception as e:
                             st.error("上传失败 %s: %s" % (f.name, e))
         # 会话文件列表
@@ -430,19 +580,118 @@ def record_agent_page():
                     if st.button("删除", key="del_img_%s" % im["file_id"]):
                         delete_file_api(im["file_id"])
                         image_gallery.remove(im["file_id"])
-                        st.rerun()
+                        _save_and_rerun()
         if pdfs:
             st.write("**PDF**")
             for pf in pdfs:
+                fid = pf["file_id"]
+                processed = pf.get("processed_pages", [])
+                active = pf.get("active_pages", [])
+                expired = pf.get("expired", False)
+                info = "%s | %s | %d bytes | 共 %d 页 | 已处理 %d 页" % (
+                    pf["filename"], fid, pf["bytes_size"], pf["page_count"], len(processed),
+                )
+                if processed:
+                    info += "（%s）" % _format_page_ranges(processed)
+                if active:
+                    info += " | 当前批次 第 %s 页" % _format_page_ranges(active)
+                if expired:
+                    info += " | 页图已过期"
                 pc1, pc2 = st.columns([4, 1])
-                pc1.write("%s | %s | %d bytes | %d 页" % (pf["filename"], pf["file_id"], pf["bytes_size"], pf["page_count"]))
+                pc1.write(info)
                 with pc2:
-                    if st.button("删除", key="del_pdf_%s" % pf["file_id"]):
-                        page_fids = pdf_library.remove(pf["file_id"])
+                    if st.button("删除", key="del_pdf_%s" % fid):
+                        page_fids = pdf_library.remove(fid)
                         if page_fids:
                             delete_page_images(page_fids, api_key=get_api_key())
-                        remove_local_pdf(pf["file_id"], st.session_state["ra_pdf_local_paths"])
-                        st.rerun()
+                        remove_local_pdf(fid, st.session_state["ra_pdf_local_paths"])
+                        if st.session_state.get("ra_active_batch", {}).get("file_id") == fid:
+                            st.session_state.pop("ra_active_batch", None)
+                        _save_and_rerun()
+                # 页选择：起始默认下一个未处理页，结束默认最大页号；支持非连续页号表达式
+                next_page = max(processed) + 1 if processed else 1
+                if next_page > pf["page_count"]:
+                    next_page = 1
+                b1, b2 = st.columns([1, 1])
+                start = b1.number_input(
+                    "起始页", min_value=1, max_value=pf["page_count"],
+                    value=next_page, step=1, key="pdf_start_%s" % fid,
+                )
+                end = b2.number_input(
+                    "结束页（默认最大页号）", min_value=1, max_value=pf["page_count"],
+                    value=pf["page_count"], step=1, key="pdf_end_%s" % fid,
+                )
+                page_expr = st.text_input(
+                    "自定义页号（可选，支持非连续，如 1-5,8,10-12；留空则使用起始-结束）",
+                    value="", key="pdf_pages_%s" % fid,
+                )
+                b3, b4 = st.columns([1.5, 1.5])
+                with b3:
+                    if st.button("加载所选页图", key="pdf_batch_%s" % fid):
+                        local_path = st.session_state["ra_pdf_local_paths"].get(fid)
+                        page_nos = None
+                        try:
+                            if page_expr.strip():
+                                page_nos = parse_page_selection(page_expr, pf["page_count"])
+                            else:
+                                if int(end) < int(start):
+                                    raise PdfRenderError("结束页不能小于起始页")
+                                page_nos = list(range(int(start), int(end) + 1))
+                        except (PdfRenderError, ValueError) as e:
+                            st.error("页选择无效：%s" % e)
+                        if page_nos:
+                            if not local_path or not os.path.exists(local_path):
+                                st.error("本地 PDF 已过期，请重新上传该 PDF")
+                            else:
+                                api_key = get_api_key()
+                                if not api_key:
+                                    st.error("DeepSeek API Key 未配置")
+                                else:
+                                    try:
+                                        page_map = pf.get("page_file_map", {}) or {}
+                                        # 页图接近远端硬有效期时整体重传，避免复用即将失效的 file_id
+                                        uploaded_at = pf.get("page_files_uploaded_at")
+                                        if uploaded_at:
+                                            try:
+                                                uploaded_dt = datetime.fromisoformat(str(uploaded_at))
+                                                if (datetime.now() - uploaded_dt).total_seconds() > FILE_EXPIRE_SECONDS - 3600:
+                                                    pdf_library.clear_page_files(fid, expired=True)
+                                                    page_map = {}
+                                            except (ValueError, TypeError):
+                                                pass
+                                        missing = [p for p in page_nos if str(p) not in page_map]
+                                        if missing:
+                                            with st.spinner("正在渲染并上传 %d 页..." % len(missing)):
+                                                page_files = upload_pdf_pages_as_images(
+                                                    local_path, pf["filename"],
+                                                    page_nos=missing, api_key=api_key,
+                                                )
+                                            pdf_library.add_page_files(fid, page_files)
+                                        else:
+                                            # 所选页图此前已上传（含已处理页），直接复用
+                                            pdf_library.touch(fid)
+                                        pdf_library.set_active_pages(fid, page_nos)
+                                        for other in pdf_library.list_all():
+                                            if other["file_id"] != fid:
+                                                pdf_library.set_active_pages(other["file_id"], [])
+                                        st.session_state["ra_active_batch"] = {
+                                            "file_id": fid, "filename": pf["filename"],
+                                            "pages": page_nos,
+                                        }
+                                        _save_and_rerun()
+                                    except Exception as e:
+                                        st.error("生成页图失败: %s" % e)
+                        elif page_nos is not None:
+                            st.error("请至少选择一页")
+                with b4:
+                    if active:
+                        st.caption("当前批次：第 %s 页" % _format_page_ranges(active))
+                        if st.button("取消当前批次", key="pdf_batch_clear_%s" % fid):
+                            pdf_library.set_active_pages(fid, [])
+                            st.session_state.pop("ra_active_batch", None)
+                            _save_and_rerun()
+                    else:
+                        st.caption("页数不限，支持非连续页号；已处理页也可重新选择处理")
 
     # ===== 双栏：左侧手动修改区/预览区 | 右侧助手对话 =====
     edit_content = edit_answer = edit_analysis = None
@@ -477,7 +726,7 @@ def record_agent_page():
                             pending_drafts[cur_idx - 1]["draft_id"], pending_snap
                         )
             st.session_state["ra_show_preview"] = not show_preview
-            st.rerun()
+            _save_and_rerun()
         if pending_drafts and int(draft_idx) > 0:
             d = pending_drafts[int(draft_idx) - 1]
             snapshot = d.get("snapshot_after", {})
@@ -575,7 +824,7 @@ def record_agent_page():
                                         })
                                         draft_store.update_snapshot(d["draft_id"], {"notes": notes})
                                         st.success("已添加备注到草稿")
-                                        st.rerun()
+                                        _save_and_rerun()
                     notes = snapshot.get("notes", [])
                     if notes:
                         st.caption("已携带备注 %d 条" % len(notes))
@@ -587,7 +836,7 @@ def record_agent_page():
                                     notes2 = list(snapshot.get("notes", []))
                                     notes2.pop(i)
                                     draft_store.update_snapshot(d["draft_id"], {"notes": notes2})
-                                    st.rerun()
+                                    _save_and_rerun()
             ec1, ec2 = st.columns(2)
             with ec1:
                 if st.button("保存并提交", key="ra_commit", type="primary"):
@@ -599,15 +848,111 @@ def record_agent_page():
                         st.success(msg)
                     else:
                         st.error(msg)
-                    st.rerun()
+                    _save_and_rerun()
             with ec2:
                 if st.button("丢弃", key="ra_discard"):
                     draft_store.discard(d["draft_id"])
                     record_log(operator="user:%s" % user_id, case_id=d.get("target_question_id"),
                                action="draft_discard", detail={"draft_id": d["draft_id"]}, session_id=sid)
-                    st.rerun()
+                    _save_and_rerun()
         else:
             st.info("请在上方选择草稿编号查看预览" if show_preview else "请在上方选择草稿编号进行编辑修改")
+
+        # ===== 评分细则匹配草稿（作为草稿显示在草稿区）=====
+        left_matches = [
+            m for m in match_store.list_all()
+            if m["status"] not in ("committed", "discarded")
+        ]
+        if left_matches:
+            st.markdown("---")
+            st.caption("评分细则匹配草稿（%d 条）" % len(left_matches))
+            for m in left_matches:
+                status = m["status"]
+                with st.container(border=True):
+                    st.write("**%s** | 题号 %s" % (
+                        m["match_id"], m.get("rubric_question_no") or "?",
+                    ))
+                    st.caption("匹配题目：%s | 置信度 %.2f | %s" % (
+                        m.get("matched_question_id") or "无", m["confidence"], status,
+                    ))
+                    if status == "similar":
+                        st.caption("已有同类备注相似度 %.2f | 处理：%s" % (
+                            m.get("similarity") or 0.0, m.get("revise_action") or "未选择",
+                        ))
+                    with st.expander("查看并处理 %s" % m["match_id"], expanded=False):
+                        st.markdown("**本次细则**")
+                        st.markdown(m.get("rubric_content") or "")
+                        if status == "similar":
+                            st.markdown("**已有备注**")
+                            st.markdown(m.get("existing_content") or "")
+                            sb1, sb2, sb3 = st.columns(3)
+                            if sb1.button("覆盖", key="left_overwrite_%s" % m["match_id"]):
+                                match_store.update_status(m["match_id"], "similar", revise_action="overwrite")
+                                record_log(operator="user:%s" % user_id,
+                                           case_id=m.get("matched_question_id"),
+                                           action="rubric_match_resolve",
+                                           detail={"match_id": m["match_id"], "action": "overwrite",
+                                                   "existing_note_id": m.get("existing_note_id")},
+                                           session_id=sid)
+                                _save_and_rerun()
+                            if sb2.button("追加", key="left_append_%s" % m["match_id"]):
+                                match_store.update_status(m["match_id"], "similar", revise_action="append")
+                                record_log(operator="user:%s" % user_id,
+                                           case_id=m.get("matched_question_id"),
+                                           action="rubric_match_resolve",
+                                           detail={"match_id": m["match_id"], "action": "append"},
+                                           session_id=sid)
+                                _save_and_rerun()
+                            if sb3.button("跳过", key="left_skip_%s" % m["match_id"]):
+                                match_store.update_status(m["match_id"], "skipped", revise_action="skip")
+                                record_log(operator="user:%s" % user_id,
+                                           case_id=m.get("matched_question_id"),
+                                           action="rubric_match_resolve",
+                                           detail={"match_id": m["match_id"], "action": "skip"},
+                                           session_id=sid)
+                                _save_and_rerun()
+                        if status in ("low_confidence", "manual_match"):
+                            new_qid = st.number_input(
+                                "指定题目ID", value=0, key="left_fix_qid_%s" % m["match_id"],
+                            )
+                            if st.button("修正匹配", key="left_fix_%s" % m["match_id"]):
+                                match_store.update_match(
+                                    m["match_id"],
+                                    matched_question_id=int(new_qid) if new_qid else None,
+                                    status="manual_match" if new_qid else "pending",
+                                )
+                                record_log(operator="user:%s" % user_id,
+                                           case_id=m.get("matched_question_id"),
+                                           action="rubric_match_revise",
+                                           detail={"match_id": m["match_id"], "new_qid": new_qid},
+                                           session_id=sid)
+                                _save_and_rerun()
+                        if st.button("丢弃", key="left_discard_%s" % m["match_id"]):
+                            match_store.update_status(m["match_id"], "discarded")
+                            record_log(operator="user:%s" % user_id,
+                                       case_id=m.get("matched_question_id"),
+                                       action="rubric_match_resolve",
+                                       detail={"match_id": m["match_id"], "action": "discard"},
+                                       session_id=sid)
+                            _save_and_rerun()
+            mb1, mb2 = st.columns(2)
+            with mb1:
+                if st.button("确认批量提交匹配", type="primary", key="left_commit_matches"):
+                    ok_count, fail_count, skip_count = _commit_match_drafts(match_store, user_id, sid)
+                    st.success("成功 %d 条，失败 %d 条，跳过 %d 条" % (ok_count, fail_count, skip_count))
+                    _save_and_rerun()
+            with mb2:
+                if st.button("丢弃所有匹配草稿", key="left_discard_matches"):
+                    discarded = 0
+                    for item in left_matches:
+                        if item["status"] not in ("committed", "discarded"):
+                            match_store.update_status(item["match_id"], "discarded")
+                            discarded += 1
+                    record_log(operator="user:%s" % user_id, case_id=None,
+                               action="rubric_match_resolve",
+                               detail={"action": "discard_all", "count": discarded},
+                               session_id=sid)
+                    _save_and_rerun()
 
     # --- 右侧：助手对话历史 ---
     with col_chat:
@@ -616,7 +961,7 @@ def record_agent_page():
         with cc2:
             if st.button("清空对话", type="secondary", key="ra_clear_chat"):
                 st.session_state["ra_history"] = []
-                st.rerun()
+                _save_and_rerun()
         chat_height = 1000 if draft_idx else 600
         chat_container = st.container(height=chat_height)
         with chat_container:
@@ -644,86 +989,62 @@ def record_agent_page():
                         st.success(msg)
                     else:
                         st.error(msg)
-                    st.rerun()
+                    _save_and_rerun()
         else:
             st.info("撤销栈为空")
-
-    # ===== 匹配确认（有匹配草稿时显示）=====
-    pending_matches = match_store.list_all()
-    if pending_matches:
-        with st.expander("评分细则匹配结果（%d 条）" % len(pending_matches), expanded=False):
-            st.caption("确认后批量提交到对应题目的备注。similar 表示该题已有基本一致的同类备注，可逐条选择覆盖/追加/跳过；未选择时默认跳过。")
-            for m in pending_matches:
-                status = m["status"]
-                row_color = {
-                    "skipped": "gray", "low_confidence": "orange", "manual_match": "red",
-                    "similar": "violet",
-                }.get(status, "green")
-                with st.container():
-                    mc1, mc2, mc3, mc4 = st.columns([2, 2, 2, 2])
-                    mc1.write("**%s** 题号:%s" % (m["match_id"], m.get("rubric_question_no") or "?"))
-                    mc2.write("匹配题目:%s" % (m.get("matched_question_id") or "无"))
-                    mc3.write("置信度:%.2f" % m["confidence"])
-                    mc4.markdown(":%s[%s]" % (row_color, status))
-                    if status == "similar":
-                        st.caption("已有同类备注相似度：%.2f | 当前处理：%s" % (
-                            m.get("similarity") or 0.0, m.get("revise_action") or "未选择",
-                        ))
-                        with st.expander("查看已有备注并选择处理方式 %s" % m["match_id"], expanded=False):
-                            st.markdown("**本次细则**")
-                            st.markdown(m.get("rubric_content") or "")
-                            st.markdown("**已有备注**")
-                            st.markdown(m.get("existing_content") or "")
-                            rb1, rb2, rb3 = st.columns(3)
-                            if rb1.button("覆盖", key="resolve_overwrite_%s" % m["match_id"]):
-                                match_store.update_status(m["match_id"], "similar", revise_action="overwrite")
-                                record_log(operator="user:%s" % user_id, case_id=m.get("matched_question_id"),
-                                           action="rubric_match_resolve",
-                                           detail={"match_id": m["match_id"], "action": "overwrite",
-                                                   "existing_note_id": m.get("existing_note_id")},
-                                           session_id=sid)
-                                st.rerun()
-                            if rb2.button("追加", key="resolve_append_%s" % m["match_id"]):
-                                match_store.update_status(m["match_id"], "similar", revise_action="append")
-                                record_log(operator="user:%s" % user_id, case_id=m.get("matched_question_id"),
-                                           action="rubric_match_resolve",
-                                           detail={"match_id": m["match_id"], "action": "append"},
-                                           session_id=sid)
-                                st.rerun()
-                            if rb3.button("跳过", key="resolve_skip_%s" % m["match_id"]):
-                                match_store.update_status(m["match_id"], "skipped", revise_action="skip")
-                                record_log(operator="user:%s" % user_id, case_id=m.get("matched_question_id"),
-                                           action="rubric_match_resolve",
-                                           detail={"match_id": m["match_id"], "action": "skip"},
-                                           session_id=sid)
-                                st.rerun()
-                    if status in ("low_confidence", "manual_match"):
-                        with st.expander("人工修正 %s" % m["match_id"], expanded=False):
-                            new_qid = st.number_input("指定题目ID", value=0, key="fix_qid_%s" % m["match_id"])
-                            if st.button("修正匹配", key="fix_%s" % m["match_id"]):
-                                match_store.update_match(m["match_id"], matched_question_id=int(new_qid) if new_qid else None,
-                                                         status="manual_match" if new_qid else "pending")
-                                record_log(operator="user:%s" % user_id, case_id=m.get("matched_question_id"),
-                                           action="rubric_match_revise",
-                                           detail={"match_id": m["match_id"], "new_qid": new_qid}, session_id=sid)
-                                st.rerun()
-            if st.button("确认批量提交", type="primary"):
-                ok_count, fail_count, skip_count = _commit_match_drafts(match_store, user_id, sid)
-                st.success("成功 %d 条，失败 %d 条，跳过 %d 条" % (ok_count, fail_count, skip_count))
-                st.rerun()
 
     # ===== chat_input（Streamlit 限制：必须在页面最底部，不能在列/容器/expander 内）=====
     user_input = st.chat_input("输入录题指令，如：把上传的图片录成单选题...")
     if user_input:
+        if perm_switches.get_emergency_stop():
+            st.error("已紧急停止：请先点击“恢复运行”再发送指令。")
+            st.stop()
         st.session_state["ra_history"].append({"role": "user", "content": user_input})
         api_key = get_api_key()
         if not api_key:
             st.error("DeepSeek API Key 未配置")
             st.stop()
+        # 当前批次：只把所选页范围的页图传给 Agent，避免整本 PDF 塞进上下文
+        active_batch = st.session_state.get("ra_active_batch")
+        batch_pages = _batch_pages(active_batch) if active_batch else []
+        batch_prefix = ""
+        batch_image_ids = []
+        if active_batch and batch_pages:
+            batch_prefix = "[当前批次] %s 第 %s 页，请只处理该范围。\n" % (
+                active_batch["filename"], _format_page_ranges(batch_pages),
+            )
+            batch_image_ids = pdf_library.get_active_page_file_ids(active_batch["file_id"])
+            if not batch_image_ids:
+                # 兼容旧会话：按页范围取已上传页图
+                batch_image_ids = pdf_library.get_page_file_ids_in_range(
+                    active_batch["file_id"], min(batch_pages), max(batch_pages),
+                )
+        # 本次对话实际使用的图片/PDF 刷新最后使用时间（空闲 24 小时过期）
+        gallery_images = image_gallery.list_all()
+        for image in gallery_images:
+            image_gallery.touch(image["file_id"])
+        if active_batch:
+            pdf_library.touch(active_batch["file_id"])
+        # 把当前会话真实 PDF 标识提供给 LLM，避免编造 local-pdf-1 之类的占位值
+        pdf_prefix = ""
+        pdf_refs = pdf_library.list_all()
+        if pdf_refs:
+            pdf_lines = []
+            for pf in pdf_refs:
+                line = "- %s | file_id=%s | 共 %d 页" % (
+                    pf["filename"], pf["file_id"], pf["page_count"],
+                )
+                processed = pf.get("processed_pages", [])
+                if processed:
+                    line += " | 已处理 %s" % _format_page_ranges(processed)
+                if pf.get("expired"):
+                    line += " | 页图已过期，需重新加载批次"
+                pdf_lines.append(line)
+            pdf_prefix = "[会话PDF]\n" + "\n".join(pdf_lines) + "\n"
         with st.spinner("录题助手思考中..."):
             answer, steps, draft_previews = run_record_agent(
                 history=st.session_state["ra_history"][:-1],
-                user_input=user_input,
+                user_input=pdf_prefix + batch_prefix + user_input,
                 api_key=api_key,
                 user_role=user_role,
                 user_id=user_id,
@@ -735,21 +1056,31 @@ def record_agent_page():
                 fragment_store=fragment_store,
                 match_store=match_store,
                 pdf_local_paths=st.session_state["ra_pdf_local_paths"],
-                image_file_ids=[im["file_id"] for im in image_gallery.list_all()]
-                              + pdf_library.all_page_file_ids(),
+                image_file_ids=[im["file_id"] for im in gallery_images] + batch_image_ids,
                 perm_switches=perm_switches,
             )
+        # 本次批次已交给 Agent 处理，记录已处理页并清空当前批次
+        if active_batch and batch_pages:
+            pdf_library.mark_processed(active_batch["file_id"], batch_pages)
+            pdf_library.set_active_pages(active_batch["file_id"], [])
+            st.session_state.pop("ra_active_batch", None)
         st.session_state["ra_history"].append({"role": "assistant", "content": answer})
         if steps:
             with st.expander("工具调用步骤", expanded=False):
-                for s in steps:
+                shown_steps = steps[-50:] if len(steps) > 50 else steps
+                if len(steps) > 50:
+                    st.caption("仅显示最近 50 条工具调用，共 %d 条" % len(steps))
+                for s in shown_steps:
                     if "error" in s:
                         st.error(s["error"])
                     else:
                         st.write("**%s**" % s.get("tool", "?"))
                         st.code(str(s.get("args", {})), language="json")
                         st.text(s.get("result", "")[:500])
-        st.rerun()
+        _save_and_rerun()
+
+    # 兜底保存：普通交互（未触发 rerun）在此落盘
+    _persist()
 
 
 # ===== 确认提交三段式 =====

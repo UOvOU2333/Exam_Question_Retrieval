@@ -41,7 +41,7 @@ TOOL_OP_TYPE_MAP = {
     "pdf_match_rubric": "rubric_match",
 }
 
-READONLY_TOOLS = frozenset({"pdf_preview_fragment"})
+READONLY_TOOLS = frozenset({"pdf_preview_fragment", "find_question"})
 
 
 class PermissionSwitches:

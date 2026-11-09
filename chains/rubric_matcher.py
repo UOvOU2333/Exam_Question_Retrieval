@@ -81,6 +81,22 @@ def _text_similarity(text_a, text_b):
     return max(sim1, sim2, sim3, sim4)
 
 
+def normalize_question_no(question_no):
+    """提取题号主号（如 19(3) -> 19），用于题库题号匹配。"""
+    text = str(question_no or "").strip()
+    match = re.match(r"(\d+)", text)
+    return match.group(1) if match else text
+
+
+def _paper_type_match(rubric_paper, cand_paper):
+    """卷种宽松匹配（包含关系），任一侧为空返回 False。"""
+    if not rubric_paper or not cand_paper:
+        return False
+    a = str(rubric_paper).strip()
+    b = str(cand_paper).strip()
+    return a in b or b in a
+
+
 def match_rubric_to_question(rubric_item, candidate_questions, confidence_threshold=CONFIDENCE_THRESHOLD):
     """单条细则匹配。
 
@@ -104,24 +120,62 @@ def match_rubric_to_question(rubric_item, candidate_questions, confidence_thresh
     rubric_no = rubric_item.get("rubric_question_no") or rubric_item.get("question_no")
     rubric_knowledge = rubric_item.get("rubric_knowledge") or rubric_item.get("knowledge")
     rubric_content = rubric_item.get("rubric_content") or rubric_item.get("content", "")
+    rubric_paper = str(rubric_item.get("paper_type") or "").strip()
+    rubric_year = str(rubric_item.get("year") or "").strip()
+
+    # 卷种/年份优先缩小候选，减少同题号跨卷误配
+    scoped = list(candidate_questions)
+    if rubric_paper:
+        filtered = [c for c in scoped if _paper_type_match(rubric_paper, c.get("paper_type"))]
+        if filtered:
+            scoped = filtered
+    if rubric_year:
+        filtered = [c for c in scoped if str(c.get("year") or "").strip() == rubric_year]
+        if filtered:
+            scoped = filtered
+
+    main_no = normalize_question_no(rubric_no) if rubric_no is not None else None
+    same_no_count = 0
+    for c in scoped:
+        cand_no = c.get("question_no")
+        if rubric_no is not None and (
+            _question_no_match(rubric_no, cand_no)
+            or (main_no and main_no != str(rubric_no).strip()
+                and _question_no_match(main_no, cand_no))
+        ):
+            same_no_count += 1
+    ambiguous = same_no_count > 1
 
     best_match = None
     best_conf = 0.0
     best_features = []
 
-    for cand in candidate_questions:
+    for cand in scoped:
         features = []
         conf = 0.0
+        cand_no = cand.get("question_no")
+        exact_no = rubric_no is not None and _question_no_match(rubric_no, cand_no)
+        main_no_match = (
+            not exact_no and main_no is not None
+            and main_no != str(rubric_no).strip()
+            and _question_no_match(main_no, cand_no)
+        )
 
-        # 1. 题号精确匹配
-        if rubric_no is not None and _question_no_match(rubric_no, cand.get("question_no")):
-            features.append("question_no")
-            conf = 1.0
-
-        # 2. 题干相似度
-        if conf < 1.0 and rubric_content:
-            cand_content = cand.get("content", "") or ""
-            sim = _text_similarity(rubric_content, cand_content)
+        # 1. 题号匹配（原号 1.0，主号 0.9；卷种/年份不符降权）
+        if exact_no or main_no_match:
+            features.append("question_no" if exact_no else "question_no_main")
+            conf = 1.0 if exact_no else 0.9
+            cand_paper = cand.get("paper_type")
+            cand_year = str(cand.get("year") or "").strip()
+            if rubric_paper and not _paper_type_match(rubric_paper, cand_paper):
+                conf = min(conf, 0.5)
+                features.append("paper_type_mismatch")
+            elif rubric_year and cand_year and cand_year != rubric_year:
+                conf = min(conf, 0.5)
+                features.append("year_mismatch")
+        elif rubric_content:
+            # 2. 题干相似度（细则与题干通常差异较大，仅作补充）
+            sim = _text_similarity(rubric_content, cand.get("content", "") or "")
             if sim > conf:
                 features = ["content_similarity"]
                 conf = sim
@@ -143,9 +197,14 @@ def match_rubric_to_question(rubric_item, candidate_questions, confidence_thresh
         return {
             "matched_question_id": None,
             "confidence": 0.0,
-            "features": [],
+            "features": ["no_candidate"] if not candidate_questions else [],
             "status": "manual_match",
         }
+
+    # 同题号多候选且无法用卷种/年份消歧时，降低置信度交人工核对
+    if ambiguous:
+        best_conf = min(best_conf, 0.5)
+        best_features = best_features + ["ambiguous_question_no"]
 
     status = "pending" if best_conf >= confidence_threshold else "low_confidence"
     return {

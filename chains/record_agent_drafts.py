@@ -172,14 +172,25 @@ class SessionImageGallery:
         # 去重
         if self.contains(file_id):
             return False
+        now = _now()
         self._items().append({
             "file_id": file_id,
             "filename": filename,
             "bytes_size": bytes_size,
-            "added_at": _now(),
+            "added_at": now,
+            # 最后使用时间：Agent 对话引用图片时刷新，用于“最后使用后 24 小时”过期判断
+            "last_used_at": now,
             "deleted": False,
         })
         return True
+
+    def touch(self, file_id):
+        """刷新图片最后使用时间。"""
+        for it in self._items():
+            if it["file_id"] == file_id and not it["deleted"]:
+                it["last_used_at"] = _now()
+                return True
+        return False
 
     def contains(self, file_id):
         """归属校验：file_id 在本会话且未删除。"""
@@ -218,6 +229,7 @@ class SessionPdfLibrary:
     def add(self, file_id, filename, bytes_size, page_count, mode, page_file_ids=None):
         if self.contains(file_id):
             return False
+        now = _now()
         self._items().append({
             "file_id": file_id,
             "filename": filename,
@@ -225,10 +237,127 @@ class SessionPdfLibrary:
             "page_count": page_count,
             "mode": mode,
             "page_file_ids": page_file_ids or [],
-            "added_at": _now(),
+            # 页号 -> Files API file_id（按需分批渲染上传）
+            "page_file_map": {},
+            # 已处理页号（交给 Agent 处理过）
+            "processed_pages": [],
+            # 当前批次页号（页面传给 Agent 的范围）
+            "active_pages": [],
+            "expired": False,
+            "added_at": now,
+            # 最后使用时间：加载批次/对话引用页图时刷新
+            "last_used_at": now,
+            # 页图最近一次上传时间（用于远端硬过期保护）
+            "page_files_uploaded_at": None,
             "deleted": False,
         })
         return True
+
+    def touch(self, file_id):
+        """刷新 PDF 最后使用时间。"""
+        it = self.get(file_id)
+        if not it:
+            return False
+        it["last_used_at"] = _now()
+        return True
+
+    def add_page_files(self, file_id, page_files):
+        """记录一批已上传的页图。
+
+        Args:
+            file_id: PDF 本地标识
+            page_files: list[tuple[int, str]]，[(页号, Files API file_id)]
+        """
+        it = self.get(file_id)
+        if not it:
+            return False
+        page_map = it.setdefault("page_file_map", {})
+        for page_no, fid in page_files:
+            page_map[str(page_no)] = fid
+            if fid not in it["page_file_ids"]:
+                it["page_file_ids"].append(fid)
+        now = _now()
+        it["expired"] = False
+        it["last_used_at"] = now
+        it["page_files_uploaded_at"] = now
+        return True
+
+    def get_page_file_ids(self, file_id):
+        """获取某 PDF 已上传的页面图片 file_id 列表（所有批次）。"""
+        it = self.get(file_id)
+        return it.get("page_file_ids", []) if it else []
+
+    def get_page_file_ids_in_range(self, file_id, page_start, page_end):
+        """获取某 PDF 指定页范围内已上传的 file_id（未上传的页跳过）。"""
+        it = self.get(file_id)
+        if not it:
+            return []
+        page_map = it.get("page_file_map", {})
+        result = []
+        for page_no in range(int(page_start), int(page_end) + 1):
+            fid = page_map.get(str(page_no))
+            if fid:
+                result.append(fid)
+        return result
+
+    def set_active_pages(self, file_id, page_nos):
+        """设置当前批次页号（供页面过滤传给 Agent 的图片）。"""
+        it = self.get(file_id)
+        if not it:
+            return False
+        it["active_pages"] = sorted({int(n) for n in page_nos})
+        return True
+
+    def get_active_pages(self, file_id):
+        it = self.get(file_id)
+        return list(it.get("active_pages", [])) if it else []
+
+    def get_active_page_file_ids(self, file_id):
+        """按当前批次页号列表获取已上传的 file_id（支持非连续页号）。"""
+        it = self.get(file_id)
+        if not it:
+            return []
+        page_map = it.get("page_file_map", {})
+        result = []
+        for page_no in it.get("active_pages", []):
+            fid = page_map.get(str(page_no))
+            if fid:
+                result.append(fid)
+        return result
+
+    def mark_processed(self, file_id, page_nos):
+        """标记页号已处理（同一页重复标记自动去重）。"""
+        it = self.get(file_id)
+        if not it:
+            return False
+        processed = set(it.get("processed_pages", []))
+        processed.update(int(n) for n in page_nos)
+        it["processed_pages"] = sorted(processed)
+        return True
+
+    def clear_page_files(self, file_id, expired=True):
+        """清空已上传页图与处理状态，保留本地 PDF（供重新选批次渲染）。
+
+        用于恢复会话时检测到 Files API 文件已过期。
+        """
+        it = self.get(file_id)
+        if not it:
+            return False
+        it["page_file_ids"] = []
+        it["page_file_map"] = {}
+        it["active_pages"] = []
+        it["processed_pages"] = []
+        it["page_files_uploaded_at"] = None
+        it["expired"] = expired
+        return True
+
+    def all_page_file_ids(self):
+        """获取所有未删除 PDF 已上传的页面图片 file_id（扁平列表）。"""
+        result = []
+        for it in self._items():
+            if not it["deleted"]:
+                result.extend(it.get("page_file_ids", []))
+        return result
 
     def contains(self, file_id):
         for it in self._items():
@@ -241,19 +370,6 @@ class SessionPdfLibrary:
             if it["file_id"] == file_id and not it["deleted"]:
                 return it
         return None
-
-    def get_page_file_ids(self, file_id):
-        """获取某 PDF 的所有页面图片 file_id 列表。"""
-        it = self.get(file_id)
-        return it["page_file_ids"] if it else []
-
-    def all_page_file_ids(self):
-        """获取所有未删除 PDF 的页面图片 file_id（扁平列表），供 LLM 视觉引用。"""
-        result = []
-        for it in self._items():
-            if not it["deleted"]:
-                result.extend(it.get("page_file_ids", []))
-        return result
 
     def remove(self, file_id):
         """标记删除并返回 page_file_ids（供调用方删除 Files API 上的图片）。"""

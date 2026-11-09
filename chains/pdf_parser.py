@@ -23,7 +23,8 @@ import re
 # 解析超时（秒）
 PDF_PARSE_TIMEOUT = 30
 BIG_PDF_PARSE_TIMEOUT = 180
-PDF_MAX_PAGES = 200
+# 不限制解析页数（仅受 PDF 文件大小与超时约束）；保留常量便于需要时临时收紧
+PDF_MAX_PAGES = None
 
 # 题号正则（匹配 "1." "1、" "第1题" "题1" 等）
 QUESTION_NO_PATTERN = re.compile(
@@ -88,7 +89,8 @@ def parse_pdf(file_path, mode="multi_question"):
                 raise PdfParseError("PDF 无页面")
             pages = []
             total_text = []
-            for i, page in enumerate(pdf.pages[:PDF_MAX_PAGES]):
+            pages_iter = pdf.pages if PDF_MAX_PAGES is None else pdf.pages[:PDF_MAX_PAGES]
+            for i, page in enumerate(pages_iter):
                 try:
                     text = page.extract_text(layout=True) or ""
                 except Exception:

@@ -22,8 +22,17 @@ from utils.permissions import is_admin, has_permission
 
 DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
 DEFAULT_MODEL = "deepseek-flash"
-MAX_ITERATIONS = 25
-RECORD_TOOL_CALL_BUDGET = 15
+
+# 大型录题任务可能持续很多轮，默认放开到较大值；可用环境变量覆盖。
+# RECORD_AGENT_MAX_ITERATIONS：模型推理轮次上限
+# RECORD_TOOL_CALL_BUDGET：累计工具调用预算，设为 0 或负数表示不限制
+MAX_ITERATIONS = int(os.environ.get("RECORD_AGENT_MAX_ITERATIONS", "200"))
+RECORD_TOOL_CALL_BUDGET = int(os.environ.get("RECORD_TOOL_CALL_BUDGET", "300"))
+# 长会话优化：历史消息保留条数、单条工具结果进入上下文的字符上限、
+# 最近多少条工具结果保留完整内容（更早的压缩，防止上下文无限膨胀）
+MAX_HISTORY_MESSAGES = int(os.environ.get("RECORD_AGENT_MAX_HISTORY", "60"))
+TOOL_RESULT_MAX_CHARS = int(os.environ.get("RECORD_AGENT_TOOL_RESULT_CHARS", "3000"))
+KEEP_RECENT_TOOL_RESULTS = int(os.environ.get("RECORD_AGENT_KEEP_RECENT_TOOLS", "30"))
 
 
 def get_api_key() -> str | None:
@@ -51,7 +60,8 @@ def _build_record_system_prompt() -> str:
         "- 给草稿加备注用 add_note_to_draft 工具（target_draft_id 为 draft-N 字符串）\n"
         "- 给已入库题目加备注用 add_note_draft 工具（target_question_id 为整数）\n"
         "- 禁止把草稿编号当题目ID 传入，禁止混合使用\n\n"
-        "可用工具（9 个）：\n"
+        "可用工具（10 个）：\n"
+        "- find_question：按年份/卷种/题号匹配题库已有题目，返回 questionID（只读查重）\n"
         "- create_question_draft：创建新题目草稿\n"
         "- update_question_draft：修改已有题目草稿（保存修改前快照）\n"
         "- add_note_draft：添加备注/标签/评分细则草稿（目标为已入库题目ID）\n"
@@ -65,11 +75,19 @@ def _build_record_system_prompt() -> str:
         "回答要求：\n"
         "- 用简体中文回答\n"
         "- 生成草稿后告知草稿ID，提示用户在草稿列表确认\n"
+        "- 识别题目时，先按年份(year)、卷种(paper_type)、题号(question_no)调用 find_question 匹配题库 questionID；\n"
+        "  已存在题目时不要重复创建：用 update_question_draft 或告知用户该题已存在；只有未找到时才 create_question_draft。\n"
         "- 处理图片时，insert_question_image 的 file_id 必须是用户已上传的图片\n"
         "- 处理 PDF 时：PDF 每页已渲染为图片并上传，你在对话中能直接看到每页图片内容。\n"
         "  用视觉能力识别题目后，逐题调用 create_question_draft 生成草稿；\n"
         "  评分细则匹配时，视觉识别题号与细则文本后调用 pdf_match_rubric。\n"
         "  不依赖本地文本解析，以你看到的页面图片为准。\n"
+        "  PDF 工具的 file_id 必须原样使用用户消息 [会话PDF] 中列出的真实值，禁止编造 local-pdf-1 之类的占位符。\n"
+        "  评分细则匹配不需要事先提供题目 ID：识别细则后直接调用 pdf_match_rubric，工具会自动匹配题库候选题目；\n"
+        "  不要用 add_note_draft 代替匹配流程。若 [当前批次] 没有提供页图，先请用户在 PDF 列表加载答案/细则所在页范围。\n"
+        "  视觉识别细则时尽量提取年份(year)、卷种(paper_type)和题干关键词(question_hint)一并传入 rubrics，用于精准匹配。\n"
+        "  调用 pdf_match_rubric 后，只转述工具实际返回的匹配草稿 ID 和数量；不要自行编造每条细则的来源、质量评估、相似度或处理建议。\n"
+        "  匹配完成后提示用户：匹配草稿已生成，请在左侧草稿区的“评分细则匹配草稿”中查看并处理（覆盖/追加/跳过/丢弃）。\n"
         "- 严禁编造题目内容，基于你看到的图片/PDF页面图片/文本生成草稿\n"
         "- 题型(question_type)和知识模块(knowledge_modules)只能用系统已有合法值，\n"
         "  不可编造新类型。知识模块合法值：必修一/必修二/必修三/必修四/选必一/选必二/选必三。\n"
@@ -93,6 +111,23 @@ def _build_record_system_prompt() -> str:
         "     A.①③ B.①④ C.②③ D.②④\n"
         "  5) 判断题干表述的①②③④每条独占一行，紧跟题干之后、选项之前"
     )
+
+
+def _shrink_tool_messages(messages,
+                          keep_recent=KEEP_RECENT_TOOL_RESULTS,
+                          old_max_chars=500):
+    """压缩较早的工具结果，控制长任务上下文体积。
+
+    最近 keep_recent 条工具结果保持完整，更早的只保留前 old_max_chars 字符。
+    """
+    tool_indices = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
+    cutoff = len(tool_indices) - keep_recent
+    if cutoff <= 0:
+        return
+    for idx in tool_indices[:cutoff]:
+        content = messages[idx].get("content") or ""
+        if len(content) > old_max_chars:
+            messages[idx]["content"] = content[:old_max_chars] + "\n…[较早的工具结果已省略]"
 
 
 def run_record_agent(
@@ -162,7 +197,10 @@ def run_record_agent(
     )
 
     working = [{"role": "system", "content": _build_record_system_prompt()}]
-    for m in history:
+    history_tail = history or []
+    if MAX_HISTORY_MESSAGES > 0:
+        history_tail = history_tail[-MAX_HISTORY_MESSAGES:]
+    for m in history_tail:
         working.append({"role": m["role"], "content": m["content"]})
     # 构建 user message：若有图片引用，用 content 块数组让 LLM 理解图片内容
     # （DeepSeek Files API 通过 {"type": "file", "file_id": ...} 引用已上传图片）
@@ -179,7 +217,9 @@ def run_record_agent(
     last_tool_signature = None
 
     for iteration in range(MAX_ITERATIONS):
-        force_answer = iteration >= MAX_ITERATIONS - 2 or tool_call_count >= RECORD_TOOL_CALL_BUDGET
+        budget_reached = RECORD_TOOL_CALL_BUDGET > 0 and tool_call_count >= RECORD_TOOL_CALL_BUDGET
+        force_answer = iteration >= MAX_ITERATIONS - 2 or budget_reached
+        _shrink_tool_messages(working)
         payload = {"model": model, "messages": working, "stream": False}
         if not force_answer:
             payload["tools"] = RECORD_AGENT_TOOLS
@@ -274,7 +314,11 @@ def run_record_agent(
                     session_id=session_id,
                 )
                 steps.append({"tool": tname, "args": targs, "result": result[:1500]})
-                working.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
+                working.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": result[:TOOL_RESULT_MAX_CHARS],
+                })
             continue
 
         answer = msg.get("content") or ""

@@ -15,7 +15,7 @@ Files API base_url: https://api.deepseek.com（无 /v1）
   PDF：  Files API 不支持 PDF（仅支持 webp/png/jpeg/gif），无 API 大小限制。
          PDF 仅本地缓存到 static/cache/，由 pdfplumber 解析后把提取的文本喂给 LLM。
          PDF_MAX_BYTES 为本地防护上限（防恶意/误传超大文件占满磁盘），
-         非硬性解析能力限制——真正瓶颈由 PDF_MAX_PAGES 与解析超时控制。
+         不限制页数——仅受文件大小与解析超时约束。
 """
 import os
 import time
@@ -28,11 +28,15 @@ IMAGE_MAX_BYTES = 64 * 1024 * 1024
 PDF_MAX_BYTES = 100 * 1024 * 1024
 IMAGE_FORMATS = {"jpeg", "jpg", "png", "gif", "webp"}
 
-# 上传文件有效期（秒）。DeepSeek Files API 支持 expires_after，1 小时后自动删除，
-# 避免会话结束后文件缓存堆积。取值范围 3600-2592000（1 小时到 30 天）。
-FILE_EXPIRE_SECONDS = 3600
-# 本地缓存清理阈值（秒），页面加载时清理超过此年龄的本地缓存文件
-LOCAL_CACHE_MAX_AGE = 3600
+# Files API 文件有效期（秒）。作为远端硬上限尽量设长（30 天，API 允许的最大值），
+# 真正的过期由系统按“最后使用后 24 小时”判断（FILE_IDLE_EXPIRE_SECONDS）。
+FILE_EXPIRE_SECONDS = 30 * 24 * 3600
+# 系统侧空闲过期：文件最后使用后超过 24 小时视为过期，恢复会话时要求重新上传/加载。
+FILE_IDLE_EXPIRE_SECONDS = 24 * 3600
+# 本地缓存清理阈值（秒），页面加载时清理超过此年龄的本地缓存文件。
+# 本地 PDF 保留 7 天：Files API 页图 1 小时过期后，仍可重新渲染批次，
+# 不必让用户重新上传整份 PDF。
+LOCAL_CACHE_MAX_AGE = 7 * 24 * 3600
 
 # 上传超时（秒）
 IMAGE_UPLOAD_TIMEOUT = 30
@@ -73,7 +77,7 @@ def validate_pdf(filename, file_bytes):
 
     PDF 不上传到 Files API（DeepSeek 仅支持图片），仅本地缓存解析。
     大小限制为本地防护上限（防超大文件占满磁盘），非 API 限制；
-    解析性能由 pdf_parser 的 PDF_MAX_PAGES 与超时控制。
+    不限制页数，仅受文件大小与解析超时约束。
     """
     ext = os.path.splitext(filename)[1].lstrip(".").lower()
     if ext != "pdf":
@@ -126,28 +130,40 @@ def remove_local_pdf(local_file_id, pdf_local_paths):
     return False
 
 
-def upload_pdf_pages_as_images(file_path, filename, api_key=None, base_url=FILES_BASE_URL):
-    """把 PDF 每页渲染成 PNG 并上传到 Files API，返回 page_file_ids 列表。
+def upload_pdf_pages_as_images(file_path, filename, page_start=1, page_end=None,
+                               page_nos=None, api_key=None, base_url=FILES_BASE_URL):
+    """把 PDF 指定页面渲染成 PNG 并上传到 Files API。
 
-    DeepSeek Files API 不支持 PDF，本函数用 PyMuPDF 把每页渲染为 PNG 图片后
-    逐张上传到 Files API，后续以 {"type":"file","file_id"} 内容块引用，
-    由 LLM 视觉能力理解 PDF 内容（不依赖本地文本解析）。
+    上传 PDF 时不再限制页数；用户可选择任意页范围/页号组合分批，
+    只渲染上传所选页面，后续以 {"type":"file","file_id"} 内容块引用。
 
     Args:
         file_path: PDF 本地路径
         filename: 原始 PDF 文件名（用于生成页面图片名）
+        page_start: 起始页（1-based，含），仅在未传 page_nos 时使用
+        page_end: 结束页（含），None 表示到最后一页
+        page_nos: 页号列表，支持非连续页号（如 [1,3,5]）；提供时忽略 start/end
         api_key: DeepSeek API Key（None 则自动获取）
         base_url: Files API base
 
     Returns:
-        list[str]: 每页图片的 file_id 列表（顺序与页码一致）
+        list[tuple[int, str]]: [(页号, file_id)]，按页号升序
 
     Raises:
         RuntimeError: 渲染或上传失败
     """
-    from chains.pdf_to_images import render_pdf_pages_to_pngs, PdfRenderError
+    from chains.pdf_to_images import (
+        render_pdf_page_range,
+        render_pdf_pages,
+        PdfRenderError,
+    )
     try:
-        page_pngs = render_pdf_pages_to_pngs(file_path)
+        if page_nos is not None:
+            page_pngs = render_pdf_pages(file_path, page_nos)
+        else:
+            page_pngs = render_pdf_page_range(
+                file_path, page_start=page_start, page_end=page_end
+            )
     except PdfRenderError as e:
         raise RuntimeError(str(e))
 
@@ -156,20 +172,20 @@ def upload_pdf_pages_as_images(file_path, filename, api_key=None, base_url=FILES
         raise RuntimeError("DeepSeek API Key 未配置")
 
     base = os.path.splitext(filename)[0]
-    page_file_ids = []
-    for i, png_bytes in enumerate(page_pngs):
-        page_name = "%s_p%d.png" % (base, i + 1)
+    page_files = []
+    for page_no, png_bytes in page_pngs:
+        page_name = "%s_p%d.png" % (base, page_no)
         ok, msg = validate_image(page_name, png_bytes)
         if not ok:
             # 已上传的页面图片回滚删除
-            for fid in page_file_ids:
+            for _n, fid in page_files:
                 delete_file_api(fid, api_key=key, base_url=base_url)
-            raise RuntimeError("页面 %d 图片校验失败: %s" % (i + 1, msg))
+            raise RuntimeError("页面 %d 图片校验失败: %s" % (page_no, msg))
         file_id = upload_to_files_api(
             png_bytes, page_name, api_key=key, base_url=base_url
         )
-        page_file_ids.append(file_id)
-    return page_file_ids
+        page_files.append((page_no, file_id))
+    return page_files
 
 
 def delete_page_images(page_file_ids, api_key=None, base_url=FILES_BASE_URL):
