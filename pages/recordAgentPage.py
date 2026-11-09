@@ -59,6 +59,7 @@ from services.note_services import (
     get_question_notes,
 )
 from chains.record_agent import run_record_agent, get_api_key
+from chains.note_format import normalize_rubric_content
 from services.record_session_services import (
     build_snapshot,
     save_session,
@@ -1113,7 +1114,10 @@ def _commit_draft(d, draft_store, undo_stack, user_id, sid):
             note_count = 0
             for n in snap.get("notes", []):
                 try:
-                    create_question_note(qid, n.get("type_id"), n.get("content", ""), user_id)
+                    note_content = n.get("content", "")
+                    if n.get("type_name") == "评分细则":
+                        note_content = normalize_rubric_content(note_content)
+                    create_question_note(qid, n.get("type_id"), note_content, user_id)
                     note_count += 1
                 except Exception:
                     pass
@@ -1134,16 +1138,22 @@ def _commit_draft(d, draft_store, undo_stack, user_id, sid):
             note_count = 0
             for n in snap.get("notes", []):
                 try:
-                    create_question_note(target, n.get("type_id"), n.get("content", ""), user_id)
+                    note_content = n.get("content", "")
+                    if n.get("type_name") == "评分细则":
+                        note_content = normalize_rubric_content(note_content)
+                    create_question_note(target, n.get("type_id"), note_content, user_id)
                     note_count += 1
                 except Exception:
                     pass
             draft_store.commit(d["draft_id"])
             return True, "已提交修改，题目ID: %s；备注%d条" % (target, note_count)
         elif dtype == "add_note":
+            note_content = snap.get("content", "")
+            if snap.get("type_name") == "评分细则":
+                note_content = normalize_rubric_content(note_content)
             note_id = create_question_note(
                 snap.get("target_question_id"), snap.get("type_id"),
-                snap.get("content", ""), user_id,
+                note_content, user_id,
             )
             undo_stack.push("add_note", note_id, None, snap)
             record_log(operator="user:%s" % user_id, case_id=snap.get("target_question_id"),
@@ -1179,8 +1189,9 @@ def _commit_match_drafts(match_store, user_id, sid):
         try:
             if m["status"] == "similar" and action == "overwrite" and m.get("existing_note_id"):
                 soft_delete_question_note(m["existing_note_id"], user_id)
+            note_content = normalize_rubric_content(m.get("rubric_content", ""))
             note_id = create_question_note(
-                m["matched_question_id"], m["note_type_id"], m["rubric_content"], user_id,
+                m["matched_question_id"], m["note_type_id"], note_content, user_id,
             )
             if not note_id:
                 fail_count += 1
