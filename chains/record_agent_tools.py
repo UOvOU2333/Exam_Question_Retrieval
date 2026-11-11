@@ -47,6 +47,7 @@ from chains.record_agent_drafts import (
     SessionPdfLibrary,
     PdfFragmentStore,
     MatchDraftStore,
+    DRAFT_MAX,
 )
 from chains.pdf_parser import (
     parse_pdf,
@@ -503,7 +504,7 @@ def _execute_create_question_draft(args, ctx):
     }
     draft_id = ctx.draft_store.add("create_question", snapshot)
     if draft_id is None:
-        return "草稿数已达上限（%d），请先确认或丢弃部分草稿" % 20
+        return "草稿数已达上限（%d），请先确认或丢弃部分草稿" % DRAFT_MAX if DRAFT_MAX > 0 else "草稿数已达上限"
     record_log(
         operator="agent:%s" % ctx.user_id,
         case_id=None,
@@ -560,7 +561,7 @@ def _execute_update_question_draft(args, ctx):
         snapshot_before=snapshot_before,
     )
     if draft_id is None:
-        return "草稿数已达上限，请先确认或丢弃部分草稿"
+        return "草稿数已达上限（%d），请先确认或丢弃部分草稿" % DRAFT_MAX if DRAFT_MAX > 0 else "草稿数已达上限"
     record_log(
         operator="agent:%s" % ctx.user_id,
         case_id=target_id,
@@ -611,7 +612,7 @@ def _execute_add_note_draft(args, ctx):
     }
     draft_id = ctx.draft_store.add("add_note", snapshot, target_question_id=target_id)
     if draft_id is None:
-        return "草稿数已达上限，请先确认或丢弃部分草稿"
+        return "草稿数已达上限（%d），请先确认或丢弃部分草稿" % DRAFT_MAX if DRAFT_MAX > 0 else "草稿数已达上限"
     record_log(
         operator="agent:%s" % ctx.user_id,
         case_id=target_id,

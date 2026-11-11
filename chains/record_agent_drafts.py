@@ -3,7 +3,7 @@
 所有数据存 st.session_state，按 session_id 隔离，会话结束自动清理。
 
 封装类：
-  - DraftStore          录题草稿区（pending → committed/discarded，上限 20）
+  - DraftStore          录题草稿区（pending → committed/discarded，上限可配置，默认 100）
   - UndoStack           撤销/重做栈（LIFO，深度上限 50）
   - SessionImageGallery 会话图片库（file_id 归属校验）
   - SessionPdfLibrary   会话 PDF 库
@@ -15,11 +15,13 @@
   已确认提交记录保留在正式题库与 operation_logs（含草稿快照）。
   撤销栈会话结束清空，已提交记录不受影响。
 """
+import os
 import streamlit as st
 from datetime import datetime
 
-# 草稿数上限
-DRAFT_MAX = 20
+# 草稿数上限。整卷录入（30题+修改/备注草稿）默认放开到 100；
+# 可用环境变量 RECORD_AGENT_DRAFT_MAX 覆盖，设为 0 或负数表示不限制。
+DRAFT_MAX = int(os.environ.get("RECORD_AGENT_DRAFT_MAX", "100"))
 # 撤销栈深度上限
 UNDO_MAX = 50
 
@@ -45,9 +47,9 @@ class DraftStore:
         return "draft-%d" % seq
 
     def add(self, draft_type, snapshot_after, target_question_id=None, snapshot_before=None):
-        """新增草稿。超 DRAFT_MAX 拒绝返回 None。"""
+        """新增草稿。超 DRAFT_MAX 拒绝返回 None（DRAFT_MAX<=0 表示不限制）。"""
         drafts = self._drafts()
-        if len([d for d in drafts if d["status"] == "pending"]) >= DRAFT_MAX:
+        if DRAFT_MAX > 0 and len([d for d in drafts if d["status"] == "pending"]) >= DRAFT_MAX:
             return None
         draft_id = self._next_id()
         drafts.append({
