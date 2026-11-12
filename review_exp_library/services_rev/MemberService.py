@@ -127,8 +127,43 @@ def restore_user(user_id, operator_id):
         u.updated_at = datetime.utcnow()
         op = s.query(User).filter_by(id=operator_id).first()
         log_record(op.display_name if op else str(operator_id),
-                   None, "恢复用户", detail=u.username, session=s)
+                    None, "恢复用户", detail=u.username, session=s)
         return True
+
+
+def count_created_cases(user_id):
+    with get_session() as s:
+        return s.query(Case).filter_by(created_by_id=user_id).count()
+
+
+def transfer_created_cases(from_user_id, to_user_id, operator_id):
+    if from_user_id == to_user_id:
+        raise ValidationError("目标用户不可与原用户相同")
+    with get_session() as s:
+        target = s.query(User).filter_by(id=to_user_id).first()
+        if not target:
+            raise NotFoundError("目标用户不存在")
+        if target.is_deleted:
+            raise ValidationError("目标用户已禁用，不可作为转交对象")
+        from_u = s.query(User).filter_by(id=from_user_id).first()
+        if not from_u:
+            raise NotFoundError("原用户不存在")
+
+        count = s.query(Case).filter_by(created_by_id=from_user_id).count()
+        if count == 0:
+            return 0
+
+        s.query(Case).filter_by(created_by_id=from_user_id).update(
+            {Case.created_by_id: to_user_id}, synchronize_session=False
+        )
+        op = s.query(User).filter_by(id=operator_id).first()
+        log_record(
+            op.display_name if op else str(operator_id),
+            None, "转交案例",
+            detail=f"{count} 个案例创建者：{from_u.username} -> {target.username}",
+            session=s,
+        )
+        return count
 
 
 def delete_user(user_id, operator_id):

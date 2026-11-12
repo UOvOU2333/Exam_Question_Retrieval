@@ -6,6 +6,7 @@ from services_rev.AuthService import get_current_user, require_permission
 from services_rev.MemberService import (
     list_members, create_member, update_role,
     soft_delete_user, restore_user, delete_user,
+    count_created_cases, transfer_created_cases,
 )
 from utils_rev.exceptions import ValidationError, NotFoundError
 from utils_rev.permissions import (
@@ -16,20 +17,55 @@ from utils_rev.permissions import (
 
 @st.dialog("确认永久删除", width="small")
 def _permanent_delete_confirm_dialog(uid, uname):
+    user = get_current_user()
+    created_count = count_created_cases(uid)
+
     st.warning(f"确定要永久删除用户 {uname}（ID {uid}）吗？此操作不可恢复！")
-    col_c, col_d = st.columns(2)
-    with col_c:
-        if st.button("确定删除", key=f"pd_yes_{uid}", type="primary"):
+
+    if created_count > 0:
+        st.error(
+            f"该用户是 **{created_count}** 个案例的创建者，"
+            f"必须先把这些案例转交给其他用户才能删除。"
+        )
+        members = list_members(include_deleted=False)
+        candidates = [m for m in members if m.id != uid]
+        if not candidates:
+            st.warning("没有其他可用用户可作为转交目标，无法删除。")
+            return
+        target = st.selectbox(
+            "转交案例给",
+            candidates,
+            format_func=lambda m: f"{m.display_name}（{m.username}）",
+            key=f"transfer_target_{uid}",
+        )
+        if st.button(
+            f"一键转交 {created_count} 个案例并删除",
+            key=f"transfer_del_{uid}",
+            type="primary",
+            use_container_width=True,
+        ):
             try:
-                user = get_current_user()
+                transferred = transfer_created_cases(uid, target.id, user["id"])
                 delete_user(uid, user["id"])
-                st.success("已永久删除")
+                st.success(f"已转交 {transferred} 个案例，用户已永久删除")
                 st.rerun()
             except (ValidationError, NotFoundError) as e:
                 st.error(str(e))
-    with col_d:
-        if st.button("取消", key=f"pd_no_{uid}"):
+        if st.button("取消", key=f"pd_no_{uid}", use_container_width=True):
             st.rerun()
+    else:
+        col_c, col_d = st.columns(2)
+        with col_c:
+            if st.button("确定删除", key=f"pd_yes_{uid}", type="primary"):
+                try:
+                    delete_user(uid, user["id"])
+                    st.success("已永久删除")
+                    st.rerun()
+                except (ValidationError, NotFoundError) as e:
+                    st.error(str(e))
+        with col_d:
+            if st.button("取消", key=f"pd_no_{uid}"):
+                st.rerun()
 
 
 def manage_page():
