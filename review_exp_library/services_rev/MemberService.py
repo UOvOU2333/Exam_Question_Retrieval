@@ -3,6 +3,8 @@
 import hashlib
 from datetime import datetime
 
+from models_rev.Case import Case
+from models_rev.CaseOwner import CaseOwner
 from models_rev.User import User
 from models_rev.db import get_session
 from services_rev.LogService import record as log_record
@@ -144,6 +146,22 @@ def delete_user(user_id, operator_id):
         if not u.is_deleted:
             raise ValidationError("仅可永久删除已禁用用户")
         uname = u.username
+
+        created_count = s.query(Case).filter_by(created_by_id=user_id).count()
+        if created_count > 0:
+            raise ValidationError(
+                f"该用户是 {created_count} 个案例的创建者，无法永久删除。"
+                f"请先在案例管理中将这些案例转交给其他用户，或改为保留禁用账号。"
+            )
+
+        s.query(CaseOwner).filter_by(user_id=user_id).delete()
+        s.query(Case).filter_by(reviewer_id=user_id).update(
+            {Case.reviewer_id: None}, synchronize_session=False
+        )
+        s.query(Case).filter_by(submitted_by_id=user_id).update(
+            {Case.submitted_by_id: None}, synchronize_session=False
+        )
+
         s.query(User).filter_by(id=user_id).delete()
         op = s.query(User).filter_by(id=operator_id).first()
         log_record(op.display_name if op else str(operator_id),
