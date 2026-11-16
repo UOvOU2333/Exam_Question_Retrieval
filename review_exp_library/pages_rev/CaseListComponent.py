@@ -58,7 +58,7 @@ def _render_case_head(sm):
         st.caption(f"审稿 {sm.review_time} ｜ 更新 {sm.update_time:%Y-%m-%d}")
 
 
-def render_case_list(summaries, show_diff: bool = True, is_chief: bool = False, user_id: int = None, keyword: str | None = None):
+def render_case_list(summaries, is_chief: bool = False, user_id: int = None, keyword: str | None = None):
     if not summaries:
         st.info("暂无案例")
         return
@@ -77,7 +77,7 @@ def render_case_list(summaries, show_diff: bool = True, is_chief: bool = False, 
             with st.expander("查看详情", expanded=True):
                 detail = get_case_detail(sm.id)
                 if detail:
-                    render_case_detail(detail, show_diff=show_diff, keyword=keyword)
+                    render_case_detail(detail, keyword=keyword)
                 else:
                     st.warning("案例不存在")
 

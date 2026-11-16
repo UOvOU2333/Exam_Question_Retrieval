@@ -6,8 +6,11 @@
 - 硬换行：\\n → 两空格 + \\n
 - 关键词高亮：<span style="color:red">
 - 表格识别
+- 主动标注：==文字==、==绿:文字==、==蓝:文字==（荧光笔）
+          {{红:文字}}、{{蓝:文字}}（字体变色）
 """
 
+import html
 import os
 import re
 
@@ -17,6 +20,32 @@ from PIL import Image
 from utils_rev.config import BASE_DIR
 
 IMAGE_PATTERN = re.compile(r"!\[.*?\]\((.*?)\)")
+
+# 用户手写的标注语法：==底色:文字== / {{字体色:文字}}
+HIGHLIGHT_PATTERN = re.compile(r"==(?:(黄|绿|蓝):)?([^=\n]+?)==")
+TEXT_COLOR_PATTERN = re.compile(r"\{\{(红|蓝|绿|黄):([^\n{}]+?)\}\}")
+
+_BG_COLORS = {"黄": "#fff3cd", "绿": "#d1e7dd", "蓝": "#cfe2ff"}
+_FG_COLORS = {"红": "#dc3545", "蓝": "#0d6efd", "绿": "#198754", "黄": "#b8860b"}
+
+
+def translate_annotations(text: str) -> str:
+    """把标注语法转译为 HTML span，文字内容做 HTML 转义。"""
+    if not text:
+        return text
+
+    def _highlight(match):
+        color = _BG_COLORS.get(match.group(1) or "黄", _BG_COLORS["黄"])
+        content = html.escape(match.group(2))
+        return f'<span style="background-color:{color};">{content}</span>'
+
+    def _text_color(match):
+        color = _FG_COLORS.get(match.group(1), _FG_COLORS["红"])
+        content = html.escape(match.group(2))
+        return f'<span style="color:{color};">{content}</span>'
+
+    text = HIGHLIGHT_PATTERN.sub(_highlight, text)
+    return TEXT_COLOR_PATTERN.sub(_text_color, text)
 
 
 def _resolve_path(img_path: str) -> str:
@@ -70,6 +99,8 @@ def render_markdown(text: str, header: str | None = None, keyword: str | None = 
         st.write(header)
     elif header:
         text = header + text
+
+    text = translate_annotations(text)
 
     if keyword:
         text = re.sub(re.escape(keyword), f'<span style="color:red">{keyword}</span>', text)
