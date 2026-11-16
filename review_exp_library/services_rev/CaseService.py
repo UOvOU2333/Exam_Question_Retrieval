@@ -46,6 +46,17 @@ def _validate_required(data: CaseInput):
         raise ValidationError("审稿时间为必填项")
 
 
+def check_required_fields(case: Case) -> None:
+    """校验案例必填字段（提交审核与管理员直接发布共用）。"""
+    layout = get_field_layout_by_id(case.case_type_id)
+    values = {f: getattr(case, f) for f in _TEXT_FIELDS}
+    missing = [spec.label for spec in layout if spec.required and not (values.get(spec.name) or "").strip()]
+    if missing:
+        raise ValidationError(f"提交前请补全: {', '.join(missing)}")
+    if case.review_time is None:
+        raise ValidationError("审稿时间为必填项")
+
+
 def _apply_fields(case: Case, data: CaseInput):
     case.title = data.title
     case.content_before = data.content_before
@@ -81,9 +92,8 @@ def create_draft(data: CaseInput, owner_id: int) -> int:
         raise ValidationError("分类组合非法")
     _validate_required(data)
 
+    # 管理员新建时可指派他人为负责人；未选择时默认当前操作者
     owner_ids = list(data.owner_ids) if data.owner_ids else [owner_id]
-    if owner_id not in owner_ids:
-        owner_ids.insert(0, owner_id)
 
     now = datetime.utcnow()
     case = Case(
@@ -193,13 +203,7 @@ def submit_for_review(case_id: int, editor_id: int) -> bool:
         if case.status not in ("草稿", "已退回"):
             raise StateTransitionError(f"当前状态 {case.status} 不可提交审核")
 
-        layout = get_field_layout_by_id(case.case_type_id)
-        values = {f: getattr(case, f) for f in _TEXT_FIELDS}
-        missing = [spec.label for spec in layout if spec.required and not (values.get(spec.name) or "").strip()]
-        if missing:
-            raise ValidationError(f"提交前请补全: {', '.join(missing)}")
-        if case.review_time is None:
-            raise ValidationError("审稿时间为必填项")
+        check_required_fields(case)
 
         case.status = "待总编审核"
         case.submitted_by_id = editor_id

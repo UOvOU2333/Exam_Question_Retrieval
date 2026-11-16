@@ -5,6 +5,7 @@ from datetime import datetime
 from models_rev.Case import Case
 from models_rev.User import User
 from models_rev.db import get_session
+from services_rev.CaseService import check_required_fields
 from services_rev.LogService import record as log_record
 from utils_rev.dto import CaseSummary
 from utils_rev.exceptions import StateTransitionError, ValidationError, NotFoundError
@@ -57,6 +58,30 @@ def publish(case_id: int, reviewer_id: int) -> bool:
         reviewer = s.query(User).filter_by(id=reviewer_id).first()
         log_record(reviewer.display_name if reviewer else str(reviewer_id),
                    case_id, "发布", session=s)
+        return True
+
+
+def publish_direct(case_id: int, operator_id: int) -> bool:
+    """管理员直接发布：跳过审核队列。"""
+    with get_session() as s:
+        c = s.query(Case).filter_by(id=case_id).first()
+        if not c:
+            raise NotFoundError("案例不存在")
+        if c.status == "已发布":
+            return True
+        if c.status == "已归档":
+            raise StateTransitionError("已归档案例不可直接发布")
+
+        check_required_fields(c)
+
+        c.status = "已发布"
+        c.reviewer_id = operator_id
+        c.review_at = datetime.utcnow()
+        c.update_time = datetime.utcnow()
+        c.reject_comment = None
+        op = s.query(User).filter_by(id=operator_id).first()
+        log_record(op.display_name if op else str(operator_id),
+                   case_id, "直接发布", session=s)
         return True
 
 

@@ -1,39 +1,13 @@
 """案例详情展示组件。"""
 
-import difflib
-import html
-
 import streamlit as st
 
 from services_rev.ImageService import abs_path
 from utils_rev.dto import CaseDetail
 from utils_rev.render_utils import render_markdown, safe_render_image
 
-_DIFF_DEL_STYLE = "background-color:#f8d7da;color:#842029"
-_DIFF_INS_STYLE = "background-color:#d1e7dd;color:#0f5132"
 
-
-def _render_diff(before: str, after: str):
-    sm = difflib.SequenceMatcher(None, before, after, autojunk=False)
-    parts = []
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
-        if tag == "equal":
-            parts.append(html.escape(before[i1:i2]))
-        elif tag == "delete":
-            seg = html.escape(before[i1:i2])
-            parts.append(f'<span style="{_DIFF_DEL_STYLE}">{seg}</span>')
-        elif tag == "insert":
-            seg = html.escape(after[j1:j2])
-            parts.append(f'<span style="{_DIFF_INS_STYLE}">{seg}</span>')
-        elif tag == "replace":
-            seg_del = html.escape(before[i1:i2])
-            seg_ins = html.escape(after[j1:j2])
-            parts.append(f'<span style="{_DIFF_DEL_STYLE}">{seg_del}</span>')
-            parts.append(f'<span style="{_DIFF_INS_STYLE}">{seg_ins}</span>')
-    st.markdown("".join(parts), unsafe_allow_html=True)
-
-
-def render_case_detail(detail: CaseDetail, show_diff: bool = True, keyword: str | None = None):
+def render_case_detail(detail: CaseDetail, keyword: str | None = None):
     st.markdown(
         f"**书名**：{detail.book} ｜ "
         f"**问题与范例**：{detail.section} ｜ "
@@ -44,9 +18,6 @@ def render_case_detail(detail: CaseDetail, show_diff: bool = True, keyword: str 
     if detail.status == "已退回" and detail.reject_comment:
         st.error(f"退回意见：{detail.reject_comment}")
 
-    before_value = detail.fields.get("content_before", {}).get("value", "") or ""
-    after_value = detail.fields.get("content_after", {}).get("value", "") or ""
-
     for name, info in detail.fields.items():
         label = info["label"]
         value = info["value"]
@@ -54,10 +25,6 @@ def render_case_detail(detail: CaseDetail, show_diff: bool = True, keyword: str 
             continue
         st.markdown(f"#### {label}")
         render_markdown(value, keyword=keyword)
-
-    if show_diff and before_value.strip() and after_value.strip():
-        st.markdown("#### 对比")
-        _render_diff(before_value, after_value)
 
     if detail.image_paths:
         st.markdown("#### 图片")
