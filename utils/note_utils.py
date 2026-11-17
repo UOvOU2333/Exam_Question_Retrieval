@@ -124,13 +124,14 @@ def display_notes_list(question_id):
                     st.caption(f"🙎 {user_name} (ID:{note['created_by']})")
 
                 # 编辑态：显示修改表单；否则显示内容与操作按钮
-                if st.session_state.editing_note_id == note['note_id']:
+                # 仅编辑员/管理员（update 权限）可进入和看到修改表单
+                if st.session_state.editing_note_id == note['note_id'] and check_permission("update"):
                     edit_note_form(note)
                 else:
                     render_markdown(note['content'])
 
                     if check_permission("update"):
-                        # 修改按钮与危险操作并列
+                        # 修改按钮与危险操作并列，修改按钮不放入危险操作
                         col_edit, col_danger = st.columns(2)
                         with col_edit:
                             if st.button(
@@ -199,13 +200,16 @@ def edit_note_form(note):
             cancelled = st.form_submit_button("取消", use_container_width=True)
 
         if saved:
-            if not new_content.strip():
+            if not check_permission("update"):
+                st.error("权限不足，仅管理员和编辑员可修改备注")
+            elif not new_content.strip():
                 st.warning("备注内容不能为空")
             elif update_question_note(
                 note['note_id'],
                 type_id=new_type_id,
                 content=new_content,
                 updated_by=st.session_state.get("user_id", 1),
+                operator_role=st.session_state.get("role"),
             ):
                 st.session_state.editing_note_id = None
                 st.success("修改成功")
