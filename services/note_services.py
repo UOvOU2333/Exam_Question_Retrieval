@@ -360,6 +360,52 @@ def create_question_note(question_id, type_id, content, created_by):
         conn.close()
 
 
+def update_question_note(note_id, type_id=None, content=None, updated_by=None):
+    """
+    更新题目备注（内容/类型）
+    :param note_id: 备注ID
+    :param type_id: 新的备注类型ID（可选）
+    :param content: 新的备注内容（可选）
+    :param updated_by: 更新人ID（可选）
+    :return: 是否更新成功
+    """
+    update_fields = []
+    params = []
+
+    if type_id is not None:
+        update_fields.append("type_id = ?")
+        params.append(type_id)
+
+    if content is not None:
+        update_fields.append("content = ?")
+        params.append(content)
+
+    if updated_by is not None:
+        update_fields.append("updated_by = ?")
+        params.append(updated_by)
+
+    if not update_fields:
+        return False
+
+    update_fields.append("updated_at = datetime('now','localtime')")
+    params.append(note_id)
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    try:
+        cur.execute(f"""
+            UPDATE question_notes
+            SET {', '.join(update_fields)}
+            WHERE note_id = ? AND is_deleted = 0
+        """, params)
+
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
 def soft_delete_question_note(note_id, updated_by):
     """
     软删除题目备注

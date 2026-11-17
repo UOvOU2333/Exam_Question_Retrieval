@@ -98,6 +98,9 @@ def display_notes_list(question_id):
     显示题目的备注列表（按当前用户角色做可见范围过滤）
     """
     st.subheader("备注列表")
+
+    if 'editing_note_id' not in st.session_state:
+        st.session_state.editing_note_id = None
     
     # 获取该题目的所有备注（传入当前用户角色做权限过滤）
     viewer_role = st.session_state.get("role")
@@ -120,22 +123,99 @@ def display_notes_list(question_id):
                     user_name = user[1] if user else "未知用户"
                     st.caption(f"🙎 {user_name} (ID:{note['created_by']})")
 
-                render_markdown(note['content'])
+                # 编辑态：显示修改表单；否则显示内容与操作按钮
+                if st.session_state.editing_note_id == note['note_id']:
+                    edit_note_form(note)
+                else:
+                    render_markdown(note['content'])
 
-                # 删除操作藏进危险操作 expander，防止误触
-                if check_permission("update"):
-                    with st.expander("危险操作", expanded=False):
-                        if st.button(
-                            "删除该备注",
-                            key=f"del_note_{note['note_id']}",
-                            type="primary",
-                            use_container_width=True,
-                        ):
-                            if soft_delete_question_note(note['note_id'], st.session_state.get("user_id", 1)):
-                                st.success("删除成功")
+                    if check_permission("update"):
+                        # 修改按钮与危险操作并列
+                        col_edit, col_danger = st.columns(2)
+                        with col_edit:
+                            if st.button(
+                                "修改备注",
+                                key=f"edit_note_{note['note_id']}",
+                                use_container_width=True,
+                            ):
+                                st.session_state.editing_note_id = note['note_id']
                                 st.rerun()
-                            else:
-                                st.error("删除失败")
+                        with col_danger:
+                            # 删除操作藏进危险操作 expander，防止误触
+                            with st.expander("危险操作", expanded=False):
+                                if st.button(
+                                    "删除该备注",
+                                    key=f"del_note_{note['note_id']}",
+                                    type="primary",
+                                    use_container_width=True,
+                                ):
+                                    if soft_delete_question_note(note['note_id'], st.session_state.get("user_id", 1)):
+                                        st.success("删除成功")
+                                        st.rerun()
+                                    else:
+                                        st.error("删除失败")
+
+
+def edit_note_form(note):
+    """
+    单条备注的修改表单（可改类型与内容）
+    """
+    all_types = get_all_note_types()
+    viewer_role = st.session_state.get("role")
+    if viewer_role and not is_admin(viewer_role):
+        visible_ids = set(get_visible_note_type_ids(viewer_role))
+        all_types = [t for t in all_types if t['id'] in visible_ids]
+
+    if not all_types:
+        st.warning("暂无可用的备注类型")
+        if st.button("取消修改", key=f"cancel_edit_note_{note['note_id']}", use_container_width=True):
+            st.session_state.editing_note_id = None
+            st.rerun()
+        return
+
+    type_ids = [t['id'] for t in all_types]
+    type_names = {t['id']: t['type_name'] for t in all_types}
+    default_index = type_ids.index(note['type_id']) if note['type_id'] in type_ids else 0
+
+    with st.form(f"edit_note_form_{note['note_id']}"):
+        new_type_id = st.selectbox(
+            "类型",
+            options=type_ids,
+            index=default_index,
+            format_func=lambda tid: type_names.get(tid, str(tid)),
+            key=f"edit_note_type_{note['note_id']}",
+        )
+        new_content = st.text_area(
+            "内容",
+            value=note['content'],
+            height=120,
+            key=f"edit_note_content_{note['note_id']}",
+        )
+
+        col_save, col_cancel = st.columns(2)
+        with col_save:
+            saved = st.form_submit_button("保存修改", type="primary", use_container_width=True)
+        with col_cancel:
+            cancelled = st.form_submit_button("取消", use_container_width=True)
+
+        if saved:
+            if not new_content.strip():
+                st.warning("备注内容不能为空")
+            elif update_question_note(
+                note['note_id'],
+                type_id=new_type_id,
+                content=new_content,
+                updated_by=st.session_state.get("user_id", 1),
+            ):
+                st.session_state.editing_note_id = None
+                st.success("修改成功")
+                st.rerun()
+            else:
+                st.error("修改失败")
+
+        if cancelled:
+            st.session_state.editing_note_id = None
+            st.rerun()
 
 
 def note_type_selector_component():
