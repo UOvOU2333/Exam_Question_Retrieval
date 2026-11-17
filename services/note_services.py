@@ -4,6 +4,7 @@ from datetime import datetime
 from utils.permissions import (
     ALL_ROLES,
     DEFAULT_VISIBLE_ROLES,
+    has_permission,
     is_admin,
 )
 
@@ -360,15 +361,21 @@ def create_question_note(question_id, type_id, content, created_by):
         conn.close()
 
 
-def update_question_note(note_id, type_id=None, content=None, updated_by=None):
+def update_question_note(note_id, type_id=None, content=None, updated_by=None, operator_role=None):
     """
     更新题目备注（内容/类型）
     :param note_id: 备注ID
     :param type_id: 新的备注类型ID（可选）
     :param content: 新的备注内容（可选）
     :param updated_by: 更新人ID（可选）
+    :param operator_role: 操作者角色，仅拥有 update 权限（编辑员/管理员）可执行
     :return: 是否更新成功
     """
+    # 服务层兜底校验，避免绕过 UI 直接调用
+    if not has_permission(operator_role, "update"):
+        print(f"权限不足：角色 {operator_role} 无权修改备注")
+        return False
+
     update_fields = []
     params = []
 
