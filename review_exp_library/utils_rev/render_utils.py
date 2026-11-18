@@ -127,6 +127,8 @@ def render_markdown(text: str, header: str | None = None, keyword: str | None = 
             img_path = match.group(1)
             safe_render_image(img_path)
         else:
-            buffer.append(line)
+            # Streamlit 前端按 GFM 把波浪线识别为删除线（如题号 1~2. 会整段划线），
+            # 这里转成 HTML 实体按字面显示，避免误判。
+            buffer.append(line.replace("~", "&#126;"))
 
     flush_buffer()
