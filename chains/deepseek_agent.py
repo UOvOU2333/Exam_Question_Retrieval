@@ -14,6 +14,12 @@ MAX_ITERATIONS = 25
 TOOL_CALL_BUDGET = 15
 SEARCH_RESULT_LIMIT = 12
 CONTENT_PREVIEW_LEN = 100
+# 长会话上下文压缩：history 保留条数、单条工具结果字符上限、
+# 最近多少条工具结果保留完整内容（更早的压缩，防止上下文无限膨胀）
+MAX_HISTORY_MESSAGES = int(os.environ.get("AI_AGENT_MAX_HISTORY", "20"))
+TOOL_RESULT_MAX_CHARS = int(os.environ.get("AI_AGENT_TOOL_RESULT_CHARS", "2000"))
+KEEP_RECENT_TOOL_RESULTS = int(os.environ.get("AI_AGENT_KEEP_RECENT_TOOLS", "10"))
+OLD_TOOL_RESULT_CHARS = int(os.environ.get("AI_AGENT_OLD_TOOL_CHARS", "500"))
 
 TOOLS = [
     {
@@ -227,6 +233,23 @@ def get_api_key() -> str | None:
         return None
 
 
+def _shrink_tool_messages(messages,
+                          keep_recent=KEEP_RECENT_TOOL_RESULTS,
+                          old_max_chars=OLD_TOOL_RESULT_CHARS):
+    """压缩较早的工具结果，控制长会话上下文体积。
+
+    最近 keep_recent 条工具结果保持完整，更早的只保留前 old_max_chars 字符。
+    """
+    tool_indices = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
+    cutoff = len(tool_indices) - keep_recent
+    if cutoff <= 0:
+        return
+    for idx in tool_indices[:cutoff]:
+        content = messages[idx].get("content") or ""
+        if len(content) > old_max_chars:
+            messages[idx]["content"] = content[:old_max_chars] + "\n…[较早的检索结果已省略]"
+
+
 def run_agent(
     history: list,
     user_input: str,
@@ -245,7 +268,10 @@ def run_agent(
     steps = []
 
     working = [{"role": "system", "content": _build_system_prompt()}]
-    for m in history:
+    history_tail = history or []
+    if MAX_HISTORY_MESSAGES > 0:
+        history_tail = history_tail[-MAX_HISTORY_MESSAGES:]
+    for m in history_tail:
         working.append({"role": m["role"], "content": m["content"]})
     working.append({"role": "user", "content": user_input})
 
@@ -254,6 +280,7 @@ def run_agent(
 
     for iteration in range(MAX_ITERATIONS):
         force_answer = iteration >= MAX_ITERATIONS - 2 or tool_call_count >= TOOL_CALL_BUDGET
+        _shrink_tool_messages(working)
         payload = {
             "model": model,
             "messages": working,
@@ -314,7 +341,7 @@ def run_agent(
                 working.append({
                     "role": "tool",
                     "tool_call_id": tc["id"],
-                    "content": result,
+                    "content": result[:TOOL_RESULT_MAX_CHARS],
                 })
             continue
 

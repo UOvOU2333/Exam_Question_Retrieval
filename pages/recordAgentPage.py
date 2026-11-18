@@ -388,6 +388,19 @@ def record_agent_page():
         st.session_state["ra_history"] = []
     if "ra_pdf_local_paths" not in st.session_state:
         st.session_state["ra_pdf_local_paths"] = {}
+    # dirty 标记：仅在有变更时落盘，避免每次 widget 交互都写库
+    if "ra_dirty" not in st.session_state:
+        st.session_state["ra_dirty"] = False
+
+    # ra_history 上限：保留首条 + 最近 N 条，避免长会话无限增长
+    RA_HISTORY_MAX = 100
+    RA_HISTORY_KEEP_RECENT = 60
+    _ra_hist = st.session_state["ra_history"]
+    if len(_ra_hist) > RA_HISTORY_MAX:
+        first = _ra_hist[0] if _ra_hist else None
+        recent = _ra_hist[-RA_HISTORY_KEEP_RECENT:]
+        st.session_state["ra_history"] = ([first] if first else []) + recent
+        st.session_state["ra_dirty"] = True
 
     sid = st.session_state["ra_session_id"]
     draft_store = DraftStore(sid)
@@ -398,6 +411,31 @@ def record_agent_page():
     match_store = MatchDraftStore(sid)
     perm_switches = PermissionSwitches(sid)
 
+    # 旧会话 sid 在 session_state 中的隔离 key 前缀，切换会话时全部清理释放内存
+    _SESSION_KEY_TEMPLATES = (
+        "record_drafts_%s",
+        "record_draft_seq_%s",
+        "record_undo_%s",
+        "record_redo_%s",
+        "record_images_%s",
+        "record_pdfs_%s",
+        "record_fragments_%s",
+        "record_fragment_seq_%s",
+        "record_matches_%s",
+        "record_match_seq_%s",
+        "ra_perm_switches_%s",
+        "ra_perm_emergency_stop_%s",
+    )
+
+    def _cleanup_session_state_keys(old_sid):
+        """清理旧会话 sid 在 session_state 中的所有隔离 key，释放内存。
+
+        新建/恢复会话时调用：旧 sid 的草稿/PDF/图片/撤销栈/片段/匹配草稿/
+        权限开关全部遗留会致内存随会话数线性增长。
+        """
+        for tpl in _SESSION_KEY_TEMPLATES:
+            st.session_state.pop(tpl % old_sid, None)
+
     # ===== 会话持久化辅助 =====
     def _session_title():
         """用首条用户指令前 20 字作为历史会话标题。"""
@@ -406,22 +444,31 @@ def record_agent_page():
                 return message["content"].strip()[:20]
         return "会话 %s" % sid
 
-    def _persist():
-        """把当前会话状态写入历史记录（无实际内容的空会话不保存）。"""
+    def _persist(force=False):
+        """把当前会话状态写入历史记录（无实际内容的空会话不保存）。
+
+        force=True 时无视 dirty 标记强制落盘（用于恢复/新建会话等关键节点）。
+        普通 widget 交互触发的 rerun 不会调用本函数，避免高频写库。
+        """
+        if not force and not st.session_state.get("ra_dirty"):
+            return
         snapshot = build_snapshot(st.session_state, sid)
         has_content = bool(snapshot.get("ra_history")) or any(snapshot.get(key) for key in (
             "record_drafts_%s" % sid, "record_images_%s" % sid,
             "record_pdfs_%s" % sid, "record_matches_%s" % sid,
         ))
         if not has_content:
+            st.session_state["ra_dirty"] = False
             return
         try:
             save_session(sid, user_id, _session_title(), snapshot)
+            st.session_state["ra_dirty"] = False
         except Exception:
             # 历史保存失败不阻断主流程
             pass
 
     def _save_and_rerun():
+        st.session_state["ra_dirty"] = True
         _persist()
         st.rerun()
 
@@ -450,7 +497,8 @@ def record_agent_page():
                     format_func=lambda sid: label_by_sid[sid], key="ra_history_pick",
                 )
                 if st.button("恢复会话", key="ra_history_restore"):
-                    _persist()
+                    _persist(force=True)
+                    _cleanup_session_state_keys(sid)
                     restored, warnings = restore_session(
                         st.session_state, pick_sid, user_id
                     )
@@ -462,7 +510,8 @@ def record_agent_page():
             else:
                 st.caption("暂无历史会话")
             if st.button("新建会话", key="ra_history_new"):
-                _persist()
+                _persist(force=True)
+                _cleanup_session_state_keys(sid)
                 st.session_state["ra_session_id"] = "ra_%s" % uuid.uuid4().hex[:8]
                 st.session_state["ra_history"] = []
                 st.session_state["ra_pdf_local_paths"] = {}
@@ -1021,9 +1070,12 @@ def record_agent_page():
                     active_batch["file_id"], min(batch_pages), max(batch_pages),
                 )
         # 本次对话实际使用的图片/PDF 刷新最后使用时间（空闲 24 小时过期）
+        # 只 touch 本次真正引用的图片，不全量 touch，避免 O(n) 写库
         gallery_images = image_gallery.list_all()
+        touched_ids = set(batch_image_ids or [])
         for image in gallery_images:
-            image_gallery.touch(image["file_id"])
+            if image["file_id"] in touched_ids:
+                image_gallery.touch(image["file_id"])
         if active_batch:
             pdf_library.touch(active_batch["file_id"])
         # 把当前会话真实 PDF 标识提供给 LLM，避免编造 local-pdf-1 之类的占位值
@@ -1080,7 +1132,7 @@ def record_agent_page():
                         st.text(s.get("result", "")[:500])
         _save_and_rerun()
 
-    # 兜底保存：普通交互（未触发 rerun）在此落盘
+    # 兜底保存：仅在 dirty 标记为真时落盘，避免每次 widget 交互都写库
     _persist()
 
 

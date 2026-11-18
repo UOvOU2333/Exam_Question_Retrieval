@@ -4,6 +4,7 @@
 替换工具集为录题 9 工具（RECORD_AGENT_TOOLS），
 工具执行前做第三层权限校验（含物理控件拦截层），工具执行后写 tool_call 日志。
 """
+import copy
 import json
 import os
 import requests
@@ -33,6 +34,13 @@ RECORD_TOOL_CALL_BUDGET = int(os.environ.get("RECORD_TOOL_CALL_BUDGET", "300"))
 MAX_HISTORY_MESSAGES = int(os.environ.get("RECORD_AGENT_MAX_HISTORY", "60"))
 TOOL_RESULT_MAX_CHARS = int(os.environ.get("RECORD_AGENT_TOOL_RESULT_CHARS", "3000"))
 KEEP_RECENT_TOOL_RESULTS = int(os.environ.get("RECORD_AGENT_KEEP_RECENT_TOOLS", "30"))
+# 长会话上下文体积硬上限：超出后丢弃中间消息，仅保留首尾。
+# working 列表条数硬上限（含 system/user/assistant/tool）。
+MAX_WORKING_MESSAGES = int(os.environ.get("RECORD_AGENT_MAX_WORKING", "120"))
+# 最近多少条 assistant 消息保留完整内容，更早的只留摘要。
+KEEP_RECENT_ASSISTANTS = int(os.environ.get("RECORD_AGENT_KEEP_RECENT_ASSISTANTS", "20"))
+# 早期 assistant 消息摘要字符上限。
+OLD_ASSISTANT_MAX_CHARS = int(os.environ.get("RECORD_AGENT_OLD_ASSISTANT_CHARS", "300"))
 
 
 def get_api_key() -> str | None:
@@ -134,6 +142,59 @@ def _shrink_tool_messages(messages,
             messages[idx]["content"] = content[:old_max_chars] + "\n…[较早的工具结果已省略]"
 
 
+def _shrink_assistant_messages(messages,
+                               keep_recent=KEEP_RECENT_ASSISTANTS,
+                               old_max_chars=OLD_ASSISTANT_MAX_CHARS):
+    """压缩较早的 assistant 消息，丢弃 tool_calls 结构只留文本摘要。
+
+    最近 keep_recent 条 assistant 保持完整（含 tool_calls），更早的：
+      - content 截断到 old_max_chars
+      - tool_calls 替换为简短计数摘要，避免长 JSON 反复进上下文
+    """
+    asst_indices = [i for i, m in enumerate(messages) if m.get("role") == "assistant"]
+    cutoff = len(asst_indices) - keep_recent
+    if cutoff <= 0:
+        return
+    for idx in asst_indices[:cutoff]:
+        m = messages[idx]
+        content = m.get("content") or ""
+        if len(content) > old_max_chars:
+            m["content"] = content[:old_max_chars] + "\n…[较早的助手消息已省略]"
+        tcs = m.get("tool_calls")
+        if tcs:
+            names = [tc.get("function", {}).get("name", "?") for tc in tcs]
+            m["tool_calls"] = None
+            summary = "…[已省略 %d 次工具调用: %s]" % (len(tcs), ",".join(names))
+            m["content"] = (m.get("content") or "") + summary
+
+
+def _trim_working_messages(messages, hard_limit=MAX_WORKING_MESSAGES):
+    """working 列表条数硬上限：超过时丢弃中间消息，保留 system + 首尾。
+
+    system 消息（索引 0）始终保留；其余超过 hard_limit 时，
+    保留最前 keep_head 条与最后 keep_tail 条，中间用一条占位 user 消息替代。
+    """
+    if len(messages) <= hard_limit:
+        return
+    # system 通常在索引 0
+    sys_count = 1 if messages and messages[0].get("role") == "system" else 0
+    body = messages[sys_count:]
+    budget = hard_limit - sys_count
+    if budget <= 4:
+        return
+    keep_head = max(2, budget // 4)
+    keep_tail = budget - keep_head - 1
+    head = body[:keep_head]
+    tail = body[-keep_tail:] if keep_tail > 0 else []
+    dropped = len(body) - len(head) - len(tail)
+    placeholder = {
+        "role": "user",
+        "content": "…[为控制上下文体积，已省略中间 %d 条历史消息]" % dropped,
+    }
+    new_body = head + [placeholder] + tail
+    messages[sys_count:] = new_body
+
+
 def run_record_agent(
     history,
     user_input,
@@ -224,6 +285,8 @@ def run_record_agent(
         budget_reached = RECORD_TOOL_CALL_BUDGET > 0 and tool_call_count >= RECORD_TOOL_CALL_BUDGET
         force_answer = iteration >= MAX_ITERATIONS - 2 or budget_reached
         _shrink_tool_messages(working)
+        _shrink_assistant_messages(working)
+        _trim_working_messages(working)
         payload = {"model": model, "messages": working, "stream": False}
         if not force_answer:
             payload["tools"] = RECORD_AGENT_TOOLS

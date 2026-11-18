@@ -16,6 +16,7 @@
 恢复会话时按上传时间与本地 PDF 是否还存在做检测，过期页图/图片清空引用，
 由页面提示用户重新上传或重新加载批次。
 """
+import copy
 import json
 import os
 import sqlite3
@@ -25,7 +26,7 @@ from chains.record_agent_files import FILE_EXPIRE_SECONDS, FILE_IDLE_EXPIRE_SECO
 
 DB_PATH = "data/questions.db"
 # 每个用户保留的历史会话数量上限
-MAX_SESSIONS_PER_USER = 50
+MAX_SESSIONS_PER_USER = 20
 
 # 需要随会话保存的 session_state key（%s 为 sid）
 SESSION_KEYS = (
@@ -232,7 +233,7 @@ def check_expired_files(snapshot, now=None):
     返回 (snapshot, warnings)。只修改传入的快照副本，不访问网络。
     """
     now = now or datetime.now()
-    data = json.loads(json.dumps(snapshot, ensure_ascii=False, default=str))
+    data = copy.deepcopy(snapshot)
     warnings = []
 
     images_key = next((k for k in data if k.startswith("record_images_")), None)

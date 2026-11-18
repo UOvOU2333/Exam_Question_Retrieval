@@ -228,7 +228,7 @@ def case_form_page(case_id=None, keep_status: bool = False):
             editor_in_charge=editor_in_charge,
             owner_names=editor_in_charge,
             submitter_display_name=None,
-        ))
+        ), before_after_side_by_side=False)
 
     st.divider()
 

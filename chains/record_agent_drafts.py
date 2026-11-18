@@ -24,6 +24,9 @@ from datetime import datetime
 DRAFT_MAX = int(os.environ.get("RECORD_AGENT_DRAFT_MAX", "100"))
 # 撤销栈深度上限
 UNDO_MAX = 50
+# 已提交/已丢弃草稿保留条数：更早的从 session_state 移除释放内存
+# （已提交数据在数据库与 operation_logs 有完整记录，撤销栈独立保存 snapshot）
+KEEP_RECENT_CLOSED_DRAFTS = int(os.environ.get("RECORD_AGENT_KEEP_RECENT_CLOSED", "10"))
 
 
 def _now():
@@ -93,6 +96,7 @@ class DraftStore:
             if d["draft_id"] == draft_id and d["status"] == "pending":
                 d["status"] = "committed"
                 d["committed_at"] = _now()
+                self._prune_closed()
                 return d
         return None
 
@@ -101,8 +105,27 @@ class DraftStore:
             if d["draft_id"] == draft_id and d["status"] == "pending":
                 d["status"] = "discarded"
                 d["discarded_at"] = _now()
+                self._prune_closed()
                 return True
         return False
+
+    def _prune_closed(self):
+        """清理已提交/已丢弃草稿，仅保留最近 KEEP_RECENT_CLOSED_DRAFTS 条。
+
+        已提交数据在数据库与 operation_logs 有完整记录；撤销栈独立保存
+        snapshot_before/after，不依赖 DraftStore 的草稿。保留少量非 pending
+        草稿仅供用户在页面短暂回看，更早的从 session_state 移除释放内存。
+        """
+        drafts = self._drafts()
+        closed = [d for d in drafts if d["status"] != "pending"]
+        if len(closed) <= KEEP_RECENT_CLOSED_DRAFTS:
+            return
+        # 计算需要移除的草稿 id（最早提交/丢弃的那批）
+        keep_ids = {id(d) for d in closed[-KEEP_RECENT_CLOSED_DRAFTS:]}
+        to_remove = [d for d in closed if id(d) not in keep_ids]
+        remove_set = set(id(d) for d in to_remove)
+        # 原地重建列表，保留 pending 与最近 closed
+        st.session_state[self._key] = [d for d in drafts if id(d) not in remove_set]
 
 
 class UndoStack:
