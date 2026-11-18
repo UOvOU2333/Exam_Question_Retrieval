@@ -28,8 +28,8 @@ _ANNOTATION_WRAPS = {
     "荧光黄": ("==", "=="),
     "荧光绿": ("==绿:", "=="),
     "荧光蓝": ("==蓝:", "=="),
-    "红色字": ("{{红:", "}}"),
-    "蓝色字": ("{{蓝:", "}}"),
+    "红色字": ("【【红:", "】】"),
+    "蓝色字": ("【【蓝:", "】】"),
 }
 
 
@@ -118,7 +118,8 @@ def case_form_page(case_id=None, keep_status: bool = False):
         with st.expander("荧光笔 / 变色标注", expanded=False):
             st.caption(
                 "选择样式生成标记，复制后粘贴到正文对应位置；"
-                "也可直接手写：==文字==、==绿:文字==、{{红:文字}}"
+                "也可直接手写：==文字==、==绿:文字==、【【红:文字】】"
+                "（颜色后的冒号全角/半角均可）"
             )
             _hl_text = st.text_input("标注文字", key=f"cf_{kid}_hl_text")
             _hl_style = st.selectbox(
@@ -128,8 +129,8 @@ def case_form_page(case_id=None, keep_status: bool = False):
             )
             _hl_prefix, _hl_suffix = _ANNOTATION_WRAPS[_hl_style]
             _hl_raw = (_hl_text or "").strip()
-            if any(ch in _hl_raw for ch in "={}\n"):
-                st.warning("标注文字不能包含 = { } 或换行")
+            if any(ch in _hl_raw for ch in "=【】\n"):
+                st.warning("标注文字不能包含 = 【 】 或换行")
                 _hl_raw = ""
             _hl_marked = f"{_hl_prefix}{_hl_raw or '文字'}{_hl_suffix}"
             st.code(_hl_marked, language="markdown")

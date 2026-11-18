@@ -7,7 +7,8 @@
 - 关键词高亮：<span style="color:red">
 - 表格识别
 - 主动标注：==文字==、==绿:文字==、==蓝:文字==（荧光笔）
-          {{红:文字}}、{{蓝:文字}}（字体变色）
+          【【红:文字】】、【【蓝:文字】】（字体变色，兼容旧 {{红:文字}} 写法）
+          颜色后的冒号支持半角 : 与全角 ：
 """
 
 import html
@@ -21,9 +22,9 @@ from utils_rev.config import BASE_DIR
 
 IMAGE_PATTERN = re.compile(r"!\[.*?\]\((.*?)\)")
 
-# 用户手写的标注语法：==底色:文字== / {{字体色:文字}}
-HIGHLIGHT_PATTERN = re.compile(r"==(?:(黄|绿|蓝):)?([^=\n]+?)==")
-TEXT_COLOR_PATTERN = re.compile(r"\{\{(红|蓝|绿|黄):([^\n{}]+?)\}\}")
+# 用户手写的标注语法：==底色:文字== / 【【字体色:文字】】，冒号兼容全角/半角
+HIGHLIGHT_PATTERN = re.compile(r"==(?:(黄|绿|蓝)[:：])?([^=\n]+?)==")
+TEXT_COLOR_PATTERN = re.compile(r"(?:【【|\{\{)(红|蓝|绿|黄)[:：]([^\n】}]+?)(?:】】|\}\})")
 
 _BG_COLORS = {"黄": "#fff3cd", "绿": "#d1e7dd", "蓝": "#cfe2ff"}
 _FG_COLORS = {"红": "#dc3545", "蓝": "#0d6efd", "绿": "#198754", "黄": "#b8860b"}
