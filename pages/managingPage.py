@@ -7,6 +7,7 @@ from pages.uploadPage import upload
 from pages.updatePage import update
 from pages.userManagePage import user_manage
 from pages.noteTypeManagingPage import note_type_management
+from pages.knowledgeBaseManagePage import knowledge_base_manage
 from pages.exportPage import export
 from pages.paperTypeBatchChangePage import paper_type_batch_change
 from utils.navbar_utils import navbar, info_update
@@ -33,6 +34,7 @@ def main():
                 sac.MenuItem('试卷导出', icon='download'),
                 sac.MenuItem('卷种变更', icon='arrow-left-right'),
                 sac.MenuItem('备注管理', icon='tags'),
+                sac.MenuItem('知识库管理', icon='book'),
                 sac.MenuItem('用户管理', icon='people'),
                 sac.MenuItem('用户中心', icon='person'),
                 sac.MenuItem('回收站', icon='recycle'),
@@ -86,6 +88,12 @@ def main():
             st.error("无权限访问")
         else:
             note_type_management()
+
+    elif selected == '知识库管理':
+        if not check_permission("kb_manage"):
+            st.error("无权限访问")
+        else:
+            knowledge_base_manage()
 
     elif selected == '回收站':
         if not check_permission("recycle_bin"):

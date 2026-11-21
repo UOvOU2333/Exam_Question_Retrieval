@@ -6,6 +6,7 @@ from utils.auth_utils import require_login, check_permission
 from utils.permissions import is_admin
 from utils.render_utils import render_markdown
 from utils.note_utils import display_notes_list
+from utils.kb_utils import display_kb_capsules
 from services.question_services import search_questions, get_question_by_id, get_question_summaries, search_by_note
 from services.note_services import get_all_note_types, get_visible_note_type_ids
 from tools.exam_type_utils import QUESTION_TYPES, KNOWLEDGE_MODULES, str_to_knowledge_modules
@@ -38,7 +39,7 @@ def search():
                 flag_new_textbook = st.toggle("新教材")
 
         years, paper_type, question_no, question_type_filter, knowledge_modules_filter, \
-            field_que, field_sou, search_scope, keyword = _render_base_filters()
+            field_que, field_sou, search_scope = _render_base_filters()
 
         type_id = None
         note_content = ""
@@ -57,7 +58,7 @@ def search():
             st.caption("以下条件留空则不限制；填写后将与备注检索结果取交集")
             flag_new_textbook = st.toggle("仅看新教材", key="adv_new_textbook")
             years, paper_type, question_no, question_type_filter, knowledge_modules_filter, \
-                field_que, field_sou, search_scope, keyword = _render_base_filters()
+                field_que, field_sou, search_scope = _render_base_filters()
 
         flag_no = False
     else:
@@ -75,10 +76,14 @@ def search():
         search_scope = "题目/答案/解析"
         question_type_filter = "（不限）"
         knowledge_modules_filter = []
-        keyword = ""
         type_id = None
         note_content = ""
         note_creator = ""
+
+    keyword = st.text_input(
+        "关键词检索",
+        placeholder="请输入关键词",
+    )
 
     # =========================
     # 执行检索
@@ -259,14 +264,8 @@ def _render_base_filters():
             field_sou = options_sou[selected_index_sou][1]
             field_que = "all"
 
-    keyword = st.text_input(
-        "关键词检索",
-        placeholder="请输入关键词",
-        key="base_keyword",
-    )
-
     return (years, paper_type, question_no, question_type_filter, knowledge_modules_filter,
-            field_que, field_sou, search_scope, keyword)
+            field_que, field_sou, search_scope)
 
 
 def _render_note_filters():
@@ -425,6 +424,8 @@ def _render_question_result(summary, flag_copy, keyword):
             st.caption(" | ".join(caption_parts))
 
         display_notes_list(qid)
+
+        display_kb_capsules(qid)
 
         if check_permission("update"):
             if st.button("更新试题", key=f"update_btn_{qid}"):

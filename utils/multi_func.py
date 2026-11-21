@@ -4,6 +4,7 @@ import streamlit_antd_components as sac
 
 from utils.file_utils import save_uploaded_file_once
 from utils.note_utils import question_notes_component
+from utils.kb_utils import kb_entry_selector
 
 
 def rich_markdown(img_dir, is_upload_page = False, qid = None):
@@ -49,14 +50,15 @@ def rich_tools():
 
 def remark_tools():
 
-    if "active_tool" not in st.session_state:
+    if "active_remark_tool" not in st.session_state:
         st.session_state.active_remark_tool = None
 
     type_choice = sac.segmented(
         label="添加备注",
         items=[
             sac.SegmentedItem(label="⛔️ 关闭"),
-            sac.SegmentedItem(label="📝 备注")
+            sac.SegmentedItem(label="📝 备注"),
+            sac.SegmentedItem(label="🏷️ 标签"),
         ],
         align="start",
         size="sm",
@@ -65,7 +67,8 @@ def remark_tools():
 
     if type_choice:
         _map = {
-            "📝 备注": "remark"
+            "📝 备注": "remark",
+            "🏷️ 标签": "tag",
         }
         st.session_state.active_remark_tool = _map.get(type_choice)
 
@@ -195,6 +198,8 @@ def render_tool_panel(img_dir, is_upload_page, qid=None):
         tool_remark = st.session_state.active_remark_tool
         if tool_remark == "remark":
             question_notes_component(qid)
+        elif tool_remark == "tag":
+            kb_entry_selector(qid)
 
 
 def img_upload(img_dir):

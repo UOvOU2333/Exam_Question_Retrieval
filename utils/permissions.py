@@ -74,6 +74,9 @@ PERMISSIONS = {
     "ai_auto":           (ROLE_ADMIN,),
     # 录题 Agent：editor 及以上角色可被授权使用
     "record_agent":      (ROLE_EDITOR, ROLE_ADVANCER, ROLE_ADMIN),
+    # 知识库：高级用户及以上可检索查看；编辑员及以上可管理
+    "kb_view":           (ROLE_ADVANCER, ROLE_EDITOR, ROLE_ADMIN),
+    "kb_manage":         (ROLE_EDITOR, ROLE_ADMIN),
 }
 
 

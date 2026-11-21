@@ -8,7 +8,9 @@ from pages.authPage import login
 from pages.searchPage import search
 from pages.exportPage import export
 from pages.aiChatPage import ai_chat
+from pages.knowledgeBasePage import knowledge_base_page
 from utils.navbar_utils import navbar
+from utils.permissions import has_permission
 
 
 BEIAN_CODE = "32011402012515"
@@ -49,6 +51,7 @@ def main():
         selected = sac.menu(
             items=[
                 sac.MenuItem('试题检索', icon='database'),
+                sac.MenuItem('知识库', icon='book'),
                 sac.MenuItem('试卷导出', icon='download'),
                 sac.MenuItem('智能助手', icon='chat'),
                 sac.MenuItem('用户中心', icon='person'),
@@ -67,6 +70,15 @@ def main():
             login()
         else:
             search()
+
+    elif selected == '知识库':
+        if not st.session_state.get("logged_in"):
+            st.warning("请先登录")
+            login()
+        elif not has_permission(st.session_state.get("role"), "kb_view"):
+            st.error("权限不足，仅高级用户及以上可访问知识库")
+        else:
+            knowledge_base_page()
 
     elif selected == '试卷导出':
         if not st.session_state.get("logged_in"):
