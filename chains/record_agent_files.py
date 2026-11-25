@@ -22,6 +22,10 @@ import time
 import uuid
 import requests
 
+from utils.app_logger import get_logger
+
+log = get_logger("record_agent_files")
+
 FILES_BASE_URL = "https://api.deepseek.com"
 
 IMAGE_MAX_BYTES = 64 * 1024 * 1024
@@ -227,10 +231,20 @@ def upload_to_files_api(file_bytes, filename, purpose="user_data",
     if expires_seconds:
         data["expires_after[anchor]"] = "created_at"
         data["expires_after[seconds]"] = str(int(expires_seconds))
-    resp = requests.post(url, headers=headers, files=files, data=data, timeout=timeout)
+    size_kb = len(file_bytes) // 1024
+    log.info("upload_start filename=%s size_kb=%d is_pdf=%s timeout=%s", filename, size_kb, is_pdf, timeout)
+    t0 = time.time()
+    try:
+        resp = requests.post(url, headers=headers, files=files, data=data, timeout=timeout)
+    except Exception as e:
+        log.error("upload_fail filename=%s size_kb=%d elapsed=%.2f error=%s: %s", filename, size_kb, time.time() - t0, type(e).__name__, e)
+        raise
+    elapsed = time.time() - t0
     if resp.status_code != 200:
+        log.error("upload_http_fail filename=%s size_kb=%d elapsed=%.2f status=%d body=%s", filename, size_kb, elapsed, resp.status_code, resp.text[:200])
         raise RuntimeError("上传失败 [%d]: %s" % (resp.status_code, resp.text[:200]))
     body = resp.json()
+    log.info("upload_ok filename=%s size_kb=%d elapsed=%.2f file_id=%s", filename, size_kb, elapsed, body["id"])
     return body["id"]
 
 

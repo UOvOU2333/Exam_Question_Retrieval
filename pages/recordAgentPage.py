@@ -67,6 +67,9 @@ from services.record_session_services import (
     restore_session,
 )
 from chains.record_agent_perm import PermissionSwitches, OP_TYPE_LABELS
+from utils.app_logger import get_logger
+
+log = get_logger("record_agent_page")
 from chains.record_agent_drafts import (
     DraftStore,
     UndoStack,
@@ -1049,6 +1052,12 @@ def record_agent_page():
         if perm_switches.get_emergency_stop():
             st.error("已紧急停止：请先点击“恢复运行”再发送指令。")
             st.stop()
+        log.info(
+            "chat_send session=%s user_id=%s user=%s input_len=%d history=%d drafts=%d",
+            sid, user_id, st.session_state.get("username", "-"),
+            len(user_input), len(st.session_state["ra_history"]),
+            len(draft_store.list_all()) if draft_store else 0,
+        )
         st.session_state["ra_history"].append({"role": "user", "content": user_input})
         api_key = get_api_key()
         if not api_key:

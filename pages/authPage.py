@@ -10,6 +10,9 @@ from services.user_services import (
     update_password,
 )
 from utils.permissions import ROLE_NAMES, ROLE_PERMISSION_INFO
+from utils.app_logger import get_logger
+
+log = get_logger("auth")
 
 
 # ========== 登录页 / 用户主页 ==========
@@ -44,9 +47,11 @@ def login():
             st.session_state["logged_in"] = True
             st.session_state["username"] = username
             st.session_state["role"] = role
+            log.info("login_success user=%s role=%s user_id=%s", username, role, user_id)
             st.success("登录成功")
             st.rerun()
         else:
+            log.warning("login_failed user=%s reason=invalid_credentials", username)
             st.error("用户名或密码错误")
 
 
@@ -74,6 +79,7 @@ def show_dashboard():
 
     # ===== 退出 =====
     if st.button("退出登录"):
+        log.info("logout user=%s user_id=%s", username, st.session_state.get("user_id"))
         for k in ["logged_in", "username", "role"]:
             st.session_state.pop(k, None)
         st.rerun()
@@ -105,6 +111,7 @@ def show_account_settings():
                     st.error("该用户名已被占用，请换一个")
                 else:
                     update_username(user_id, new_username.strip())
+                    log.info("update_username user_id=%s old=%s new=%s", user_id, username, new_username.strip())
                     st.session_state["username"] = new_username.strip()
                     st.success("用户名修改成功")
                     st.rerun()
@@ -128,4 +135,5 @@ def show_account_settings():
                     st.warning("新密码不能与当前密码相同")
                 else:
                     update_password(user_id, new_pwd)
+                    log.info("update_password user_id=%s user=%s", user_id, username)
                     st.success("密码修改成功")

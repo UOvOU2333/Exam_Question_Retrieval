@@ -7,6 +7,7 @@
 import copy
 import json
 import os
+import time
 import requests
 from datetime import datetime
 
@@ -20,6 +21,9 @@ from chains.record_agent_perm import PermissionSwitches, check_tool_permission
 from services.record_agent_auth_services import is_record_agent_enabled
 from services.log_services import record_log
 from utils.permissions import is_admin, has_permission
+from utils.app_logger import get_logger
+
+log = get_logger("record_agent")
 
 DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
 DEFAULT_MODEL = "deepseek-flash"
@@ -281,6 +285,13 @@ def run_record_agent(
     tool_call_count = 0
     last_tool_signature = None
 
+    log.info(
+        "agent_start session=%s user_id=%s role=%s model=%s history=%d tool_budget=%s max_iter=%d",
+        session_id, user_id, user_role, model, len(history_tail),
+        RECORD_TOOL_CALL_BUDGET, MAX_ITERATIONS,
+    )
+    agent_start = time.time()
+
     for iteration in range(MAX_ITERATIONS):
         budget_reached = RECORD_TOOL_CALL_BUDGET > 0 and tool_call_count >= RECORD_TOOL_CALL_BUDGET
         force_answer = iteration >= MAX_ITERATIONS - 2 or budget_reached
@@ -296,19 +307,35 @@ def run_record_agent(
                 "content": "请基于以上已生成的草稿直接给出最终回答，不要再调用工具。提示用户在草稿列表确认提交。",
             }]
         try:
+            t0 = time.time()
             resp = requests.post(url, headers=headers, json=payload, timeout=120)
+            api_elapsed = time.time() - t0
         except requests.RequestException as e:
+            log.error(
+                "api_call_fail session=%s iter=%d elapsed=%.2f error=%s: %s",
+                session_id, iteration, time.time() - t0, type(e).__name__, e,
+            )
             steps.append({"error": "网络请求失败: %s" % e})
             return "网络请求失败，请检查网络连接和 API 地址。", steps, []
 
         if resp.status_code != 200:
+            log.error(
+                "api_http_error session=%s iter=%d elapsed=%.2f status=%d body=%s",
+                session_id, iteration, api_elapsed, resp.status_code, resp.text[:300],
+            )
             steps.append({"error": "HTTP %d: %s" % (resp.status_code, resp.text[:300])})
             return "调用 AI 服务失败（HTTP %d），请检查 API Key、模型名与网络。" % resp.status_code, steps, []
+
+        log.info(
+            "api_call_ok session=%s iter=%d elapsed=%.2f status=200 msgs=%d tool_calls_so_far=%d",
+            session_id, iteration, api_elapsed, len(working), tool_call_count,
+        )
 
         try:
             data = resp.json()
             msg = data["choices"][0]["message"]
         except (ValueError, KeyError, IndexError) as e:
+            log.error("api_parse_fail session=%s iter=%d error=%s: %s", session_id, iteration, type(e).__name__, e)
             steps.append({"error": "解析响应失败: %s" % e})
             return "AI 服务返回数据异常。", steps, []
 
@@ -391,9 +418,17 @@ def run_record_agent(
         answer = msg.get("content") or ""
         # 计算本轮新增草稿预览
         draft_previews = _collect_new_drafts(draft_store, match_store, pre_draft_count, pre_match_count)
+        log.info(
+            "agent_done session=%s iter=%d elapsed=%.2fs tool_calls=%d reason=normal",
+            session_id, iteration, time.time() - agent_start, tool_call_count,
+        )
         return answer, steps, draft_previews
 
     draft_previews = _collect_new_drafts(draft_store, match_store, pre_draft_count, pre_match_count)
+    log.warning(
+        "agent_done session=%s iter=%d elapsed=%.2fs tool_calls=%d reason=max_iterations_reached",
+        session_id, MAX_ITERATIONS, time.time() - agent_start, tool_call_count,
+    )
     return "已达最大推理轮次，未能生成最终回答，请尝试换一种问法。", steps, draft_previews
 
 

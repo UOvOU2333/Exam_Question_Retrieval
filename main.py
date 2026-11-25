@@ -11,6 +11,9 @@ from pages.aiChatPage import ai_chat
 from pages.knowledgeBasePage import knowledge_base_page
 from utils.navbar_utils import navbar
 from utils.permissions import has_permission
+from utils.app_logger import get_logger
+
+log = get_logger("main")
 
 
 BEIAN_CODE = "32011402012515"
@@ -62,6 +65,11 @@ def main():
     if "nav" in st.session_state:
         selected = st.session_state["nav"]
         del st.session_state["nav"]
+
+    # 记录页面访问（含登录态与用户名，便于卡死时定位谁在做什么）
+    _user = st.session_state.get("username")
+    _logged = st.session_state.get("logged_in", False)
+    log.info("page_route selected=%s logged_in=%s user=%s", selected, _logged, _user or "-")
 
     # Page Routing
     if selected == '试题检索':

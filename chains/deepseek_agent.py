@@ -1,5 +1,6 @@
 import json
 import os
+import time
 import requests
 from datetime import datetime
 
@@ -7,6 +8,9 @@ from services.question_services import search_questions, get_question_by_id
 from services.note_services import get_question_notes, search_notes
 from tools.exam_type_utils import QUESTION_TYPES, KNOWLEDGE_MODULES
 from utils.permissions import can_view_analysis
+from utils.app_logger import get_logger
+
+log = get_logger("deepseek_agent")
 
 DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
 DEFAULT_MODEL = "deepseek-flash"
@@ -294,14 +298,20 @@ def run_agent(
                 "content": "请基于以上已检索到的信息直接给出最终回答，不要再调用工具。如果信息不足，请如实告知用户并建议调整问法。",
             }]
         try:
+            t0 = time.time()
             resp = requests.post(url, headers=headers, json=payload, timeout=120)
+            api_elapsed = time.time() - t0
         except requests.RequestException as e:
+            log.error("api_call_fail iter=%d error=%s: %s", iteration, type(e).__name__, e)
             steps.append({"error": f"网络请求失败: {e}"})
             return "网络请求失败，请检查网络连接和 API 地址。", steps
 
         if resp.status_code != 200:
+            log.error("api_http_error iter=%d elapsed=%.2f status=%d body=%s", iteration, api_elapsed, resp.status_code, resp.text[:300])
             steps.append({"error": f"HTTP {resp.status_code}: {resp.text[:300]}"})
             return f"调用 AI 服务失败（HTTP {resp.status_code}），请检查 API Key、模型名与网络。", steps
+
+        log.info("api_call_ok iter=%d elapsed=%.2f msgs=%d tool_calls=%d", iteration, api_elapsed, len(working), tool_call_count)
 
         try:
             data = resp.json()
