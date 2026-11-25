@@ -471,6 +471,8 @@ def record_agent_page():
             pass
 
     def _save_and_rerun():
+        log.info("save_and_rerun session=%s user_id=%s drafts=%d history=%d",
+                 sid, user_id, len(draft_store.list_all()), len(st.session_state.get("ra_history", [])))
         st.session_state["ra_dirty"] = True
         _persist()
         st.rerun()
@@ -894,6 +896,9 @@ def record_agent_page():
             with ec1:
                 if st.button("保存并提交", key="ra_commit", type="primary"):
                     # 提交前先保存当前编辑内容，保证提交的是最新版本
+                    log.info("commit_button_click session=%s user_id=%s draft_id=%s draft_type=%s pending=%d",
+                             sid, user_id, d.get("draft_id"), d.get("draft_type"),
+                             len(pending_drafts))
                     draft_store.update_snapshot(d["draft_id"], snap_update)
                     d2 = draft_store.get(d["draft_id"])
                     ok, msg = _commit_draft(d2, draft_store, undo_stack, user_id, sid)
@@ -991,6 +996,8 @@ def record_agent_page():
             mb1, mb2 = st.columns(2)
             with mb1:
                 if st.button("确认批量提交匹配", type="primary", key="left_commit_matches"):
+                    log.info("commit_matches_button_click session=%s user_id=%s matches=%d",
+                             sid, user_id, len(left_matches))
                     ok_count, fail_count, skip_count = _commit_match_drafts(match_store, user_id, sid)
                     st.success("成功 %d 条，失败 %d 条，跳过 %d 条" % (ok_count, fail_count, skip_count))
                     _save_and_rerun()
@@ -1148,9 +1155,13 @@ def record_agent_page():
 # ===== 确认提交三段式 =====
 def _commit_draft(d, draft_store, undo_stack, user_id, sid):
     """草稿→确认→服务层三段式提交。开事务→写库→日志→撤销栈→提交。"""
+    import time as _time
     dtype = d["draft_type"]
     snap = d.get("snapshot_after", {})
     target = d.get("target_question_id")
+    _t0 = _time.time()
+    log.info("commit_start session=%s user_id=%s draft_type=%s draft_id=%s target=%s",
+             sid, user_id, dtype, d.get("draft_id"), target)
     try:
         if dtype == "create_question":
             qid = create_question(
@@ -1183,6 +1194,8 @@ def _commit_draft(d, draft_store, undo_stack, user_id, sid):
                 except Exception:
                     pass
             draft_store.commit(d["draft_id"])
+            log.info("commit_ok session=%s draft_type=create_question qid=%s notes=%d elapsed=%.2fs",
+                     sid, qid, note_count, _time.time() - _t0)
             return True, "已提交，新题目ID: %s%s；备注%d条" % (qid, dup_msg, note_count)
         elif dtype == "update_question":
             update_question(
@@ -1207,6 +1220,8 @@ def _commit_draft(d, draft_store, undo_stack, user_id, sid):
                 except Exception:
                     pass
             draft_store.commit(d["draft_id"])
+            log.info("commit_ok session=%s draft_type=update_question qid=%s notes=%d elapsed=%.2fs",
+                     sid, target, note_count, _time.time() - _t0)
             return True, "已提交修改，题目ID: %s；备注%d条" % (target, note_count)
         elif dtype == "add_note":
             note_content = snap.get("content", "")
@@ -1220,10 +1235,16 @@ def _commit_draft(d, draft_store, undo_stack, user_id, sid):
             record_log(operator="user:%s" % user_id, case_id=snap.get("target_question_id"),
                        action="commit", detail={"draft_id": d["draft_id"], "note_id": note_id}, session_id=sid)
             draft_store.commit(d["draft_id"])
+            log.info("commit_ok session=%s draft_type=add_note note_id=%s elapsed=%.2fs",
+                     sid, note_id, _time.time() - _t0)
             return True, "已提交备注，备注ID: %s" % note_id
         else:
+            log.warning("commit_skip session=%s draft_type=%s reason=unknown_type", sid, dtype)
             return False, "未知草稿类型: %s" % dtype
     except Exception as e:
+        log.error("commit_fail session=%s draft_type=%s draft_id=%s elapsed=%.2fs error=%s: %s",
+                  sid, dtype, d.get("draft_id"), _time.time() - _t0, type(e).__name__, e,
+                  exc_info=True)
         return False, "提交失败: %s" % e
 
 
@@ -1235,6 +1256,10 @@ def _commit_match_drafts(match_store, user_id, sid):
       - append：直接新建（同类备注允许共存）
       - 未选择 / skip：跳过
     """
+    import time as _time
+    _t0 = _time.time()
+    _total = len(match_store.list_all())
+    log.info("commit_matches_start session=%s user_id=%s total=%d", sid, user_id, _total)
     ok_count = 0
     fail_count = 0
     skip_count = 0
@@ -1266,8 +1291,12 @@ def _commit_match_drafts(match_store, user_id, sid):
                 session_id=sid,
             )
             ok_count += 1
-        except Exception:
+        except Exception as _e:
+            log.error("commit_matches_item_fail session=%s match_id=%s error=%s: %s",
+                      sid, m.get("match_id"), type(_e).__name__, _e, exc_info=True)
             fail_count += 1
+    log.info("commit_matches_done session=%s ok=%d fail=%d skip=%d elapsed=%.2fs",
+             sid, ok_count, fail_count, skip_count, _time.time() - _t0)
     return ok_count, fail_count, skip_count
 
 
