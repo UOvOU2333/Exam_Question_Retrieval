@@ -2,5 +2,5 @@
 showSidebarNavigation = false
 
 [server]
-runOnSave = true
-fileWatcherType = "watchdog"
+runOnSave = false
+fileWatcherType = "none"
